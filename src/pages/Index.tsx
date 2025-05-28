@@ -43,7 +43,7 @@ const Index = () => {
           <div className="flex justify-between items-center py-4">
             <div className="flex items-center">
               <Milk className="h-8 w-8 text-blue-600 mr-3" />
-              <h1 className="text-2xl font-bold text-gray-900">Loveable Milk Management</h1>
+              <h1 className="text-2xl font-bold text-gray-900">Narmada dairy Milk Management</h1>
             </div>
             <div className="text-sm text-gray-500">
               Local Milk Retailer System
