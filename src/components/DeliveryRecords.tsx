@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -8,10 +7,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Plus, Calendar as CalendarIcon, Search } from 'lucide-react';
+import { Plus, Calendar as CalendarIcon, Search, List, Grid } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
+import { BulkDeliveryEntry } from './BulkDeliveryEntry';
 
 interface DeliveryRecord {
   id: string;
@@ -30,6 +30,7 @@ export const DeliveryRecords = () => {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [searchTerm, setSearchTerm] = useState('');
+  const [isBulkMode, setIsBulkMode] = useState(false);
   const [formData, setFormData] = useState({
     customerId: '',
     customerName: '',
@@ -50,6 +51,37 @@ export const DeliveryRecords = () => {
     { name: 'Full Cream', price: 55 },
     { name: 'Skimmed', price: 50 },
   ];
+
+  if (isBulkMode) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <h2 className="text-3xl font-bold text-gray-900">Delivery Records</h2>
+            <div className="flex rounded-lg border">
+              <Button
+                variant={!isBulkMode ? "default" : "ghost"}
+                onClick={() => setIsBulkMode(false)}
+                className="rounded-r-none"
+              >
+                <List className="h-4 w-4 mr-2" />
+                Single Entry
+              </Button>
+              <Button
+                variant={isBulkMode ? "default" : "ghost"}
+                onClick={() => setIsBulkMode(true)}
+                className="rounded-l-none"
+              >
+                <Grid className="h-4 w-4 mr-2" />
+                Bulk Entry
+              </Button>
+            </div>
+          </div>
+        </div>
+        <BulkDeliveryEntry />
+      </div>
+    );
+  }
 
   const filteredRecords = deliveryRecords.filter(record =>
     record.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -136,7 +168,27 @@ export const DeliveryRecords = () => {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-3xl font-bold text-gray-900">Delivery Records</h2>
+        <div className="flex items-center gap-4">
+          <h2 className="text-3xl font-bold text-gray-900">Delivery Records</h2>
+          <div className="flex rounded-lg border">
+            <Button
+              variant={!isBulkMode ? "default" : "ghost"}
+              onClick={() => setIsBulkMode(false)}
+              className="rounded-r-none"
+            >
+              <List className="h-4 w-4 mr-2" />
+              Single Entry
+            </Button>
+            <Button
+              variant={isBulkMode ? "default" : "ghost"}
+              onClick={() => setIsBulkMode(true)}
+              className="rounded-l-none"
+            >
+              <Grid className="h-4 w-4 mr-2" />
+              Bulk Entry
+            </Button>
+          </div>
+        </div>
         
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
           <DialogTrigger asChild>

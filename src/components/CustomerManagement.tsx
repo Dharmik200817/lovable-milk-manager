@@ -12,8 +12,6 @@ import { toast } from '@/hooks/use-toast';
 interface Customer {
   id: string;
   name: string;
-  phone: string;
-  email: string;
   address: string;
   area: string;
   joinDate: string;
@@ -26,15 +24,12 @@ export const CustomerManagement = () => {
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [formData, setFormData] = useState({
     name: '',
-    phone: '',
-    email: '',
     address: '',
     area: ''
   });
 
   const filteredCustomers = customers.filter(customer =>
     customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    customer.phone.includes(searchTerm) ||
     customer.area.toLowerCase().includes(searchTerm.toLowerCase()) ||
     customer.address.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -42,10 +37,10 @@ export const CustomerManagement = () => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!formData.name || !formData.phone) {
+    if (!formData.name) {
       toast({
         title: "Error",
-        description: "Name and phone are required fields",
+        description: "Name is required",
         variant: "destructive"
       });
       return;
@@ -74,7 +69,7 @@ export const CustomerManagement = () => {
       });
     }
 
-    setFormData({ name: '', phone: '', email: '', address: '', area: '' });
+    setFormData({ name: '', address: '', area: '' });
     setIsAddDialogOpen(false);
     setEditingCustomer(null);
   };
@@ -83,8 +78,6 @@ export const CustomerManagement = () => {
     setEditingCustomer(customer);
     setFormData({
       name: customer.name,
-      phone: customer.phone,
-      email: customer.email,
       address: customer.address,
       area: customer.area
     });
@@ -129,26 +122,6 @@ export const CustomerManagement = () => {
                 />
               </div>
               <div>
-                <Label htmlFor="phone">Phone Number *</Label>
-                <Input
-                  id="phone"
-                  value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  placeholder="Enter phone number"
-                  required
-                />
-              </div>
-              <div>
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  placeholder="Enter email address"
-                />
-              </div>
-              <div>
                 <Label htmlFor="area">Area</Label>
                 <Input
                   id="area"
@@ -177,7 +150,7 @@ export const CustomerManagement = () => {
                   onClick={() => {
                     setIsAddDialogOpen(false);
                     setEditingCustomer(null);
-                    setFormData({ name: '', phone: '', email: '', address: '', area: '' });
+                    setFormData({ name: '', address: '', area: '' });
                   }}
                 >
                   Cancel
@@ -193,7 +166,7 @@ export const CustomerManagement = () => {
         <div className="relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
           <Input
-            placeholder="Search customers by name, phone, area, or address..."
+            placeholder="Search customers by name, area, or address..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-10"
@@ -209,9 +182,6 @@ export const CustomerManagement = () => {
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Name
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Phone
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Area
@@ -230,7 +200,7 @@ export const CustomerManagement = () => {
             <tbody className="bg-white divide-y divide-gray-200">
               {filteredCustomers.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
+                  <td colSpan={5} className="px-6 py-8 text-center text-gray-500">
                     No customers found. Add your first customer to get started.
                   </td>
                 </tr>
@@ -239,12 +209,6 @@ export const CustomerManagement = () => {
                   <tr key={customer.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="font-medium text-gray-900">{customer.name}</div>
-                      {customer.email && (
-                        <div className="text-sm text-gray-500">{customer.email}</div>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {customer.phone}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {customer.area || '-'}
