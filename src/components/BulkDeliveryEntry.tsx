@@ -16,9 +16,9 @@ import { toast } from '@/hooks/use-toast';
 interface GroceryItem {
   id: string;
   name: string;
-  quantity: string;
+  quantity: number;
   unit: string;
-  price: string;
+  price: number;
   description: string;
 }
 
@@ -26,8 +26,8 @@ interface BulkEntry {
   customerId: string;
   customerName: string;
   milkType: string;
-  quantity: string;
-  pricePerLiter: string;
+  quantity: number;
+  pricePerLiter: number;
   groceryItems: GroceryItem[];
 }
 
@@ -53,29 +53,33 @@ export const BulkDeliveryEntry = () => {
       customerId: '',
       customerName: '',
       milkType: '',
-      quantity: '',
-      pricePerLiter: '',
+      quantity: 0,
+      pricePerLiter: 0,
       groceryItems: []
     };
     setBulkEntries([...bulkEntries, newEntry]);
   };
 
-  const updateEntry = (index: number, field: keyof BulkEntry, value: string) => {
+  const updateEntry = (index: number, field: keyof BulkEntry, value: string | number) => {
     const updatedEntries = [...bulkEntries];
     if (field === 'customerId') {
       const customer = mockCustomers.find(c => c.id === value);
       updatedEntries[index] = {
         ...updatedEntries[index],
-        customerId: value,
+        customerId: value as string,
         customerName: customer?.name || ''
       };
     } else if (field === 'milkType') {
       const milk = mockMilkTypes.find(m => m.name === value);
       updatedEntries[index] = {
         ...updatedEntries[index],
-        milkType: value,
-        pricePerLiter: milk?.price.toString() || ''
+        milkType: value as string,
+        pricePerLiter: milk?.price || 0
       };
+    } else if (field === 'quantity') {
+      updatedEntries[index] = { ...updatedEntries[index], quantity: parseFloat(value as string) || 0 };
+    } else if (field === 'pricePerLiter') {
+      updatedEntries[index] = { ...updatedEntries[index], pricePerLiter: parseFloat(value as string) || 0 };
     } else {
       updatedEntries[index] = { ...updatedEntries[index], [field]: value };
     }
@@ -91,21 +95,33 @@ export const BulkDeliveryEntry = () => {
     const newGroceryItem: GroceryItem = {
       id: Date.now().toString(),
       name: '',
-      quantity: '',
+      quantity: 0,
       unit: '',
-      price: '',
+      price: 0,
       description: ''
     };
     updatedEntries[entryIndex].groceryItems.push(newGroceryItem);
     setBulkEntries(updatedEntries);
   };
 
-  const updateGroceryItem = (entryIndex: number, itemIndex: number, field: keyof GroceryItem, value: string) => {
+  const updateGroceryItem = (entryIndex: number, itemIndex: number, field: keyof GroceryItem, value: string | number) => {
     const updatedEntries = [...bulkEntries];
-    updatedEntries[entryIndex].groceryItems[itemIndex] = {
-      ...updatedEntries[entryIndex].groceryItems[itemIndex],
-      [field]: value
-    };
+    if (field === 'quantity') {
+      updatedEntries[entryIndex].groceryItems[itemIndex] = {
+        ...updatedEntries[entryIndex].groceryItems[itemIndex],
+        quantity: parseFloat(value as string) || 0
+      };
+    } else if (field === 'price') {
+      updatedEntries[entryIndex].groceryItems[itemIndex] = {
+        ...updatedEntries[entryIndex].groceryItems[itemIndex],
+        price: parseFloat(value as string) || 0
+      };
+    } else {
+      updatedEntries[entryIndex].groceryItems[itemIndex] = {
+        ...updatedEntries[entryIndex].groceryItems[itemIndex],
+        [field]: value
+      };
+    }
     setBulkEntries(updatedEntries);
   };
 
@@ -128,7 +144,7 @@ export const BulkDeliveryEntry = () => {
     // Validate entries
     for (let i = 0; i < bulkEntries.length; i++) {
       const entry = bulkEntries[i];
-      if (!entry.customerId || !entry.milkType || !entry.quantity || !entry.pricePerLiter) {
+      if (!entry.customerId || !entry.milkType || entry.quantity <= 0 || entry.pricePerLiter <= 0) {
         toast({
           title: "Error",
           description: `Entry ${i + 1}: Please fill in all required fields for milk delivery`,
@@ -150,9 +166,9 @@ export const BulkDeliveryEntry = () => {
   };
 
   const calculateTotal = (entry: BulkEntry) => {
-    const milkTotal = parseFloat(entry.quantity || '0') * parseFloat(entry.pricePerLiter || '0');
+    const milkTotal = entry.quantity * entry.pricePerLiter;
     const groceryTotal = entry.groceryItems.reduce((sum, item) => {
-      return sum + (parseFloat(item.quantity || '0') * parseFloat(item.price || '0'));
+      return sum + (item.quantity * item.price);
     }, 0);
     return milkTotal + groceryTotal;
   };
@@ -267,7 +283,7 @@ export const BulkDeliveryEntry = () => {
                     type="number"
                     step="0.5"
                     min="0"
-                    value={entry.quantity}
+                    value={entry.quantity || ''}
                     onChange={(e) => updateEntry(entryIndex, 'quantity', e.target.value)}
                     placeholder="e.g., 2.5"
                   />
@@ -279,7 +295,7 @@ export const BulkDeliveryEntry = () => {
                     type="number"
                     step="0.01"
                     min="0"
-                    value={entry.pricePerLiter}
+                    value={entry.pricePerLiter || ''}
                     onChange={(e) => updateEntry(entryIndex, 'pricePerLiter', e.target.value)}
                     placeholder="e.g., 55.00"
                   />
@@ -320,7 +336,7 @@ export const BulkDeliveryEntry = () => {
                             type="number"
                             step="0.01"
                             min="0"
-                            value={item.quantity}
+                            value={item.quantity || ''}
                             onChange={(e) => updateGroceryItem(entryIndex, itemIndex, 'quantity', e.target.value)}
                             placeholder="Qty"
                             size="sm"
@@ -341,7 +357,7 @@ export const BulkDeliveryEntry = () => {
                             type="number"
                             step="0.01"
                             min="0"
-                            value={item.price}
+                            value={item.price || ''}
                             onChange={(e) => updateGroceryItem(entryIndex, itemIndex, 'price', e.target.value)}
                             placeholder="Price"
                             size="sm"
