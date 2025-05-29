@@ -21,7 +21,7 @@ const Index = () => {
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
-        return <Dashboard />;
+        return <Dashboard onNavigate={setActiveTab} />;
       case 'customers':
         return <CustomerManagement />;
       case 'milk-types':
@@ -31,7 +31,7 @@ const Index = () => {
       case 'payments':
         return <PaymentTracking />;
       default:
-        return <Dashboard />;
+        return <Dashboard onNavigate={setActiveTab} />;
     }
   };
 

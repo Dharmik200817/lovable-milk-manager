@@ -9,47 +9,31 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
-      customer_milk_prices: {
+      customer_balances: {
         Row: {
-          created_at: string
-          customer_id: number | null
-          id: number
-          milk_type_id: number | null
-          price: number
+          customer_id: string
+          id: string
+          pending_amount: number
           updated_at: string
-          user_id: string | null
         }
         Insert: {
-          created_at?: string
-          customer_id?: number | null
-          id?: number
-          milk_type_id?: number | null
-          price: number
+          customer_id: string
+          id?: string
+          pending_amount?: number
           updated_at?: string
-          user_id?: string | null
         }
         Update: {
-          created_at?: string
-          customer_id?: number | null
-          id?: number
-          milk_type_id?: number | null
-          price?: number
+          customer_id?: string
+          id?: string
+          pending_amount?: number
           updated_at?: string
-          user_id?: string | null
         }
         Relationships: [
           {
-            foreignKeyName: "customer_milk_prices_customer_id_fkey"
+            foreignKeyName: "customer_balances_customer_id_fkey"
             columns: ["customer_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "customers"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "customer_milk_prices_milk_type_id_fkey"
-            columns: ["milk_type_id"]
-            isOneToOne: false
-            referencedRelation: "milk_types"
             referencedColumns: ["id"]
           },
         ]
@@ -57,137 +41,68 @@ export type Database = {
       customers: {
         Row: {
           address: string | null
-          contact: string | null
           created_at: string
-          id: number
+          id: string
           name: string
-          user_id: string | null
         }
         Insert: {
           address?: string | null
-          contact?: string | null
           created_at?: string
-          id?: number
+          id?: string
           name: string
-          user_id?: string | null
         }
         Update: {
           address?: string | null
-          contact?: string | null
           created_at?: string
-          id?: number
+          id?: string
           name?: string
-          user_id?: string | null
         }
         Relationships: []
       }
-      entry_grocery_items: {
+      delivery_records: {
         Row: {
           created_at: string
-          grocery_item_id: number | null
-          id: number
-          milk_entry_id: number | null
-          price: number
+          customer_id: string
+          delivery_date: string
+          id: string
+          milk_type_id: string
+          notes: string | null
+          price_per_liter: number
           quantity: number
-          unit: string | null
-          user_id: string | null
+          total_amount: number
         }
         Insert: {
           created_at?: string
-          grocery_item_id?: number | null
-          id?: number
-          milk_entry_id?: number | null
-          price: number
-          quantity?: number
-          unit?: string | null
-          user_id?: string | null
+          customer_id: string
+          delivery_date: string
+          id?: string
+          milk_type_id: string
+          notes?: string | null
+          price_per_liter: number
+          quantity: number
+          total_amount: number
         }
         Update: {
           created_at?: string
-          grocery_item_id?: number | null
-          id?: number
-          milk_entry_id?: number | null
-          price?: number
+          customer_id?: string
+          delivery_date?: string
+          id?: string
+          milk_type_id?: string
+          notes?: string | null
+          price_per_liter?: number
           quantity?: number
-          unit?: string | null
-          user_id?: string | null
+          total_amount?: number
         }
         Relationships: [
           {
-            foreignKeyName: "entry_grocery_items_grocery_item_id_fkey"
-            columns: ["grocery_item_id"]
-            isOneToOne: false
-            referencedRelation: "grocery_items"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "entry_grocery_items_milk_entry_id_fkey"
-            columns: ["milk_entry_id"]
-            isOneToOne: false
-            referencedRelation: "milk_entries"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      grocery_items: {
-        Row: {
-          created_at: string
-          id: number
-          name: string
-          user_id: string | null
-        }
-        Insert: {
-          created_at?: string
-          id?: number
-          name: string
-          user_id?: string | null
-        }
-        Update: {
-          created_at?: string
-          id?: number
-          name?: string
-          user_id?: string | null
-        }
-        Relationships: []
-      }
-      milk_entries: {
-        Row: {
-          created_at: string
-          customer_id: number | null
-          entry_date: string
-          id: number
-          milk_type_id: number | null
-          quantity_ml: number
-          user_id: string | null
-        }
-        Insert: {
-          created_at?: string
-          customer_id?: number | null
-          entry_date: string
-          id?: number
-          milk_type_id?: number | null
-          quantity_ml: number
-          user_id?: string | null
-        }
-        Update: {
-          created_at?: string
-          customer_id?: number | null
-          entry_date?: string
-          id?: number
-          milk_type_id?: number | null
-          quantity_ml?: number
-          user_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "milk_entries_customer_id_fkey"
+            foreignKeyName: "delivery_records_customer_id_fkey"
             columns: ["customer_id"]
             isOneToOne: false
             referencedRelation: "customers"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "milk_entries_milk_type_id_fkey"
+            foreignKeyName: "delivery_records_milk_type_id_fkey"
             columns: ["milk_type_id"]
             isOneToOne: false
             referencedRelation: "milk_types"
@@ -195,44 +110,105 @@ export type Database = {
           },
         ]
       }
+      grocery_items: {
+        Row: {
+          created_at: string
+          delivery_record_id: string | null
+          description: string | null
+          id: string
+          name: string
+          price: number
+          quantity: number
+          unit: string
+        }
+        Insert: {
+          created_at?: string
+          delivery_record_id?: string | null
+          description?: string | null
+          id?: string
+          name: string
+          price: number
+          quantity: number
+          unit: string
+        }
+        Update: {
+          created_at?: string
+          delivery_record_id?: string | null
+          description?: string | null
+          id?: string
+          name?: string
+          price?: number
+          quantity?: number
+          unit?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "grocery_items_delivery_record_id_fkey"
+            columns: ["delivery_record_id"]
+            isOneToOne: false
+            referencedRelation: "delivery_records"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       milk_types: {
         Row: {
           created_at: string
-          id: number
+          description: string | null
+          id: string
           name: string
-          price: number
-          user_id: string | null
+          price_per_liter: number
         }
         Insert: {
           created_at?: string
-          id?: number
+          description?: string | null
+          id?: string
           name: string
-          price: number
-          user_id?: string | null
+          price_per_liter: number
         }
         Update: {
           created_at?: string
-          id?: number
+          description?: string | null
+          id?: string
           name?: string
-          price?: number
-          user_id?: string | null
+          price_per_liter?: number
         }
         Relationships: []
       }
-      "Narmada Dairy": {
+      payments: {
         Row: {
+          amount: number
           created_at: string
-          id: number
+          customer_id: string
+          id: string
+          payment_date: string
+          payment_method: string
         }
         Insert: {
+          amount: number
           created_at?: string
-          id?: number
+          customer_id: string
+          id?: string
+          payment_date: string
+          payment_method?: string
         }
         Update: {
+          amount?: number
           created_at?: string
-          id?: number
+          customer_id?: string
+          id?: string
+          payment_date?: string
+          payment_method?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "payments_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
