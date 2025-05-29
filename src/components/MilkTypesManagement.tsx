@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -6,29 +7,62 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Plus, Edit, Trash2, Milk } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 
 interface MilkType {
   id: string;
   name: string;
-  pricePerLiter: number;
+  price_per_liter: number;
   description: string;
-  createdDate: string;
+  created_at: string;
 }
 
 export const MilkTypesManagement = () => {
   const [milkTypes, setMilkTypes] = useState<MilkType[]>([]);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [editingMilkType, setEditingMilkType] = useState<MilkType | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     pricePerLiter: '',
     description: ''
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Load milk types from Supabase on component mount
+  useEffect(() => {
+    loadMilkTypes();
+  }, []);
+
+  const loadMilkTypes = async () => {
+    try {
+      setIsLoading(true);
+      const { data, error } = await supabase
+        .from('milk_types')
+        .select('*')
+        .order('name');
+      
+      if (error) {
+        console.error('Error loading milk types:', error);
+        throw error;
+      }
+      
+      setMilkTypes(data || []);
+    } catch (error) {
+      console.error('Error loading milk types:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load milk types",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!formData.name || !formData.pricePerLiter) {
+    if (!formData.name.trim() || !formData.pricePerLiter) {
       toast({
         title: "Error",
         description: "Name and price are required fields",
@@ -47,57 +81,101 @@ export const MilkTypesManagement = () => {
       return;
     }
 
-    if (editingMilkType) {
-      setMilkTypes(milkTypes.map(milkType =>
-        milkType.id === editingMilkType.id
-          ? { 
-              ...milkType, 
-              name: formData.name,
-              pricePerLiter: price,
-              description: formData.description
-            }
-          : milkType
-      ));
-      toast({
-        title: "Success",
-        description: "Milk type updated successfully"
-      });
-    } else {
-      const newMilkType: MilkType = {
-        id: Date.now().toString(),
-        name: formData.name,
-        pricePerLiter: price,
-        description: formData.description,
-        createdDate: new Date().toISOString().split('T')[0]
-      };
-      setMilkTypes([...milkTypes, newMilkType]);
-      toast({
-        title: "Success",
-        description: "Milk type added successfully"
-      });
-    }
+    try {
+      setIsLoading(true);
 
-    setFormData({ name: '', pricePerLiter: '', description: '' });
-    setIsAddDialogOpen(false);
-    setEditingMilkType(null);
+      if (editingMilkType) {
+        // Update existing milk type
+        const { error } = await supabase
+          .from('milk_types')
+          .update({
+            name: formData.name.trim(),
+            price_per_liter: price,
+            description: formData.description.trim() || null
+          })
+          .eq('id', editingMilkType.id);
+
+        if (error) throw error;
+
+        toast({
+          title: "Success",
+          description: "Milk type updated successfully"
+        });
+      } else {
+        // Create new milk type
+        const { error } = await supabase
+          .from('milk_types')
+          .insert({
+            name: formData.name.trim(),
+            price_per_liter: price,
+            description: formData.description.trim() || null
+          });
+
+        if (error) throw error;
+
+        toast({
+          title: "Success",
+          description: "Milk type added successfully"
+        });
+      }
+
+      // Reload milk types to get updated data
+      await loadMilkTypes();
+      
+      // Reset form
+      setFormData({ name: '', pricePerLiter: '', description: '' });
+      setIsAddDialogOpen(false);
+      setEditingMilkType(null);
+    } catch (error) {
+      console.error('Error saving milk type:', error);
+      toast({
+        title: "Error",
+        description: "Failed to save milk type",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleEdit = (milkType: MilkType) => {
     setEditingMilkType(milkType);
     setFormData({
       name: milkType.name,
-      pricePerLiter: milkType.pricePerLiter.toString(),
-      description: milkType.description
+      pricePerLiter: milkType.price_per_liter.toString(),
+      description: milkType.description || ''
     });
     setIsAddDialogOpen(true);
   };
 
-  const handleDelete = (milkTypeId: string) => {
-    setMilkTypes(milkTypes.filter(milkType => milkType.id !== milkTypeId));
-    toast({
-      title: "Success",
-      description: "Milk type deleted successfully"
-    });
+  const handleDelete = async (milkTypeId: string) => {
+    try {
+      setIsLoading(true);
+      
+      const { error } = await supabase
+        .from('milk_types')
+        .delete()
+        .eq('id', milkTypeId);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Milk type deleted successfully"
+      });
+
+      // Reload milk types
+      await loadMilkTypes();
+    } catch (error) {
+      console.error('Error deleting milk type:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete milk type",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -107,7 +185,7 @@ export const MilkTypesManagement = () => {
         
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
           <DialogTrigger asChild>
-            <Button className="bg-green-600 hover:bg-green-700">
+            <Button className="bg-green-600 hover:bg-green-700" disabled={isLoading}>
               <Plus className="h-4 w-4 mr-2" />
               Add Milk Type
             </Button>
@@ -127,6 +205,7 @@ export const MilkTypesManagement = () => {
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   placeholder="e.g., Full Cream, Skimmed, Buffalo"
                   required
+                  disabled={isLoading}
                 />
               </div>
               <div>
@@ -140,6 +219,7 @@ export const MilkTypesManagement = () => {
                   onChange={(e) => setFormData({ ...formData, pricePerLiter: e.target.value })}
                   placeholder="e.g., 55.00"
                   required
+                  disabled={isLoading}
                 />
               </div>
               <div>
@@ -149,11 +229,12 @@ export const MilkTypesManagement = () => {
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                   placeholder="Optional description"
+                  disabled={isLoading}
                 />
               </div>
               <div className="flex gap-2 pt-4">
-                <Button type="submit" className="flex-1 bg-green-600 hover:bg-green-700">
-                  {editingMilkType ? 'Update Milk Type' : 'Add Milk Type'}
+                <Button type="submit" className="flex-1 bg-green-600 hover:bg-green-700" disabled={isLoading}>
+                  {isLoading ? 'Saving...' : (editingMilkType ? 'Update Milk Type' : 'Add Milk Type')}
                 </Button>
                 <Button 
                   type="button" 
@@ -163,6 +244,7 @@ export const MilkTypesManagement = () => {
                     setEditingMilkType(null);
                     setFormData({ name: '', pricePerLiter: '', description: '' });
                   }}
+                  disabled={isLoading}
                 >
                   Cancel
                 </Button>
@@ -174,7 +256,13 @@ export const MilkTypesManagement = () => {
 
       {/* Milk Types Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {milkTypes.length === 0 ? (
+        {isLoading ? (
+          <Card className="col-span-full p-8 text-center">
+            <div className="text-gray-500">
+              <p className="text-lg font-medium">Loading milk types...</p>
+            </div>
+          </Card>
+        ) : milkTypes.length === 0 ? (
           <Card className="col-span-full p-8 text-center">
             <div className="text-gray-500">
               <Milk className="h-12 w-12 mx-auto mb-3 text-gray-300" />
@@ -188,7 +276,7 @@ export const MilkTypesManagement = () => {
               <div className="flex justify-between items-start mb-4">
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900">{milkType.name}</h3>
-                  <p className="text-2xl font-bold text-green-600">₹{milkType.pricePerLiter.toFixed(2)}/L</p>
+                  <p className="text-2xl font-bold text-green-600">₹{milkType.price_per_liter.toFixed(2)}/L</p>
                 </div>
                 <div className="flex space-x-1">
                   <Button
@@ -196,6 +284,7 @@ export const MilkTypesManagement = () => {
                     size="sm"
                     onClick={() => handleEdit(milkType)}
                     className="text-blue-600 hover:text-blue-900"
+                    disabled={isLoading}
                   >
                     <Edit className="h-4 w-4" />
                   </Button>
@@ -204,6 +293,7 @@ export const MilkTypesManagement = () => {
                     size="sm"
                     onClick={() => handleDelete(milkType.id)}
                     className="text-red-600 hover:text-red-900"
+                    disabled={isLoading}
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -215,7 +305,7 @@ export const MilkTypesManagement = () => {
               )}
               
               <div className="text-xs text-gray-400">
-                Added on {new Date(milkType.createdDate).toLocaleDateString()}
+                Added on {new Date(milkType.created_at).toLocaleDateString()}
               </div>
             </Card>
           ))
@@ -233,13 +323,13 @@ export const MilkTypesManagement = () => {
             </div>
             <div className="text-center">
               <p className="text-2xl font-bold text-green-600">
-                ₹{Math.min(...milkTypes.map(m => m.pricePerLiter)).toFixed(2)}
+                ₹{Math.min(...milkTypes.map(m => m.price_per_liter)).toFixed(2)}
               </p>
               <p className="text-sm text-gray-500">Lowest Rate</p>
             </div>
             <div className="text-center">
               <p className="text-2xl font-bold text-red-600">
-                ₹{Math.max(...milkTypes.map(m => m.pricePerLiter)).toFixed(2)}
+                ₹{Math.max(...milkTypes.map(m => m.price_per_liter)).toFixed(2)}
               </p>
               <p className="text-sm text-gray-500">Highest Rate</p>
             </div>

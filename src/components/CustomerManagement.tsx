@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,13 +8,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Plus, Search, Edit, Trash2 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 
 interface Customer {
   id: string;
   name: string;
   address: string;
-  area: string;
-  joinDate: string;
+  created_at: string;
 }
 
 export const CustomerManagement = () => {
@@ -22,22 +22,52 @@ export const CustomerManagement = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
-    address: '',
-    area: ''
+    address: ''
   });
+
+  // Load customers from Supabase on component mount
+  useEffect(() => {
+    loadCustomers();
+  }, []);
+
+  const loadCustomers = async () => {
+    try {
+      setIsLoading(true);
+      const { data, error } = await supabase
+        .from('customers')
+        .select('*')
+        .order('name');
+      
+      if (error) {
+        console.error('Error loading customers:', error);
+        throw error;
+      }
+      
+      setCustomers(data || []);
+    } catch (error) {
+      console.error('Error loading customers:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load customers",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const filteredCustomers = customers.filter(customer =>
     customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    customer.area.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    customer.address.toLowerCase().includes(searchTerm.toLowerCase())
+    (customer.address && customer.address.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!formData.name) {
+    if (!formData.name.trim()) {
       toast({
         title: "Error",
         description: "Name is required",
@@ -46,50 +76,113 @@ export const CustomerManagement = () => {
       return;
     }
 
-    if (editingCustomer) {
-      setCustomers(customers.map(customer =>
-        customer.id === editingCustomer.id
-          ? { ...customer, ...formData }
-          : customer
-      ));
-      toast({
-        title: "Success",
-        description: "Customer updated successfully"
-      });
-    } else {
-      const newCustomer: Customer = {
-        id: Date.now().toString(),
-        ...formData,
-        joinDate: new Date().toISOString().split('T')[0]
-      };
-      setCustomers([...customers, newCustomer]);
-      toast({
-        title: "Success",
-        description: "Customer added successfully"
-      });
-    }
+    try {
+      setIsLoading(true);
 
-    setFormData({ name: '', address: '', area: '' });
-    setIsAddDialogOpen(false);
-    setEditingCustomer(null);
+      if (editingCustomer) {
+        // Update existing customer
+        const { error } = await supabase
+          .from('customers')
+          .update({
+            name: formData.name.trim(),
+            address: formData.address.trim() || null
+          })
+          .eq('id', editingCustomer.id);
+
+        if (error) throw error;
+
+        toast({
+          title: "Success",
+          description: "Customer updated successfully"
+        });
+      } else {
+        // Create new customer
+        const { data, error } = await supabase
+          .from('customers')
+          .insert({
+            name: formData.name.trim(),
+            address: formData.address.trim() || null
+          })
+          .select()
+          .single();
+
+        if (error) throw error;
+
+        // Initialize customer balance
+        const { error: balanceError } = await supabase
+          .from('customer_balances')
+          .insert({
+            customer_id: data.id,
+            pending_amount: 0
+          });
+
+        if (balanceError) {
+          console.error('Error creating customer balance:', balanceError);
+        }
+
+        toast({
+          title: "Success",
+          description: "Customer added successfully"
+        });
+      }
+
+      // Reload customers to get updated data
+      await loadCustomers();
+      
+      // Reset form
+      setFormData({ name: '', address: '' });
+      setIsAddDialogOpen(false);
+      setEditingCustomer(null);
+    } catch (error) {
+      console.error('Error saving customer:', error);
+      toast({
+        title: "Error",
+        description: "Failed to save customer",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleEdit = (customer: Customer) => {
     setEditingCustomer(customer);
     setFormData({
       name: customer.name,
-      address: customer.address,
-      area: customer.area
+      address: customer.address || ''
     });
     setIsAddDialogOpen(true);
   };
 
-  const handleDelete = (customerId: string) => {
-    setCustomers(customers.filter(customer => customer.id !== customerId));
-    toast({
-      title: "Success",
-      description: "Customer deleted successfully"
-    });
+  const handleDelete = async (customerId: string) => {
+    try {
+      setIsLoading(true);
+      
+      // Delete customer (this will cascade to related records)
+      const { error } = await supabase
+        .from('customers')
+        .delete()
+        .eq('id', customerId);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Customer deleted successfully"
+      });
+
+      // Reload customers
+      await loadCustomers();
+    } catch (error) {
+      console.error('Error deleting customer:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete customer",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -99,7 +192,7 @@ export const CustomerManagement = () => {
         
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
           <DialogTrigger asChild>
-            <Button className="bg-blue-600 hover:bg-blue-700">
+            <Button className="bg-blue-600 hover:bg-blue-700" disabled={isLoading}>
               <Plus className="h-4 w-4 mr-2" />
               Add Customer
             </Button>
@@ -119,15 +212,7 @@ export const CustomerManagement = () => {
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   placeholder="Enter customer name"
                   required
-                />
-              </div>
-              <div>
-                <Label htmlFor="area">Area</Label>
-                <Input
-                  id="area"
-                  value={formData.area}
-                  onChange={(e) => setFormData({ ...formData, area: e.target.value })}
-                  placeholder="Enter area/locality"
+                  disabled={isLoading}
                 />
               </div>
               <div>
@@ -138,11 +223,12 @@ export const CustomerManagement = () => {
                   onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                   placeholder="Enter complete delivery address"
                   rows={3}
+                  disabled={isLoading}
                 />
               </div>
               <div className="flex gap-2 pt-4">
-                <Button type="submit" className="flex-1 bg-blue-600 hover:bg-blue-700">
-                  {editingCustomer ? 'Update Customer' : 'Add Customer'}
+                <Button type="submit" className="flex-1 bg-blue-600 hover:bg-blue-700" disabled={isLoading}>
+                  {isLoading ? 'Saving...' : (editingCustomer ? 'Update Customer' : 'Add Customer')}
                 </Button>
                 <Button 
                   type="button" 
@@ -150,8 +236,9 @@ export const CustomerManagement = () => {
                   onClick={() => {
                     setIsAddDialogOpen(false);
                     setEditingCustomer(null);
-                    setFormData({ name: '', address: '', area: '' });
+                    setFormData({ name: '', address: '' });
                   }}
+                  disabled={isLoading}
                 >
                   Cancel
                 </Button>
@@ -166,10 +253,11 @@ export const CustomerManagement = () => {
         <div className="relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
           <Input
-            placeholder="Search customers by name, area, or address..."
+            placeholder="Search customers by name or address..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-10"
+            disabled={isLoading}
           />
         </div>
       </Card>
@@ -184,9 +272,6 @@ export const CustomerManagement = () => {
                   Name
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Area
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Address
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -198,9 +283,15 @@ export const CustomerManagement = () => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredCustomers.length === 0 ? (
+              {isLoading ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-8 text-center text-gray-500">
+                  <td colSpan={4} className="px-6 py-8 text-center text-gray-500">
+                    Loading customers...
+                  </td>
+                </tr>
+              ) : filteredCustomers.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-6 py-8 text-center text-gray-500">
                     No customers found. Add your first customer to get started.
                   </td>
                 </tr>
@@ -210,14 +301,11 @@ export const CustomerManagement = () => {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="font-medium text-gray-900">{customer.name}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {customer.area || '-'}
-                    </td>
                     <td className="px-6 py-4 text-sm text-gray-900 max-w-xs truncate">
                       {customer.address || '-'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {new Date(customer.joinDate).toLocaleDateString()}
+                      {new Date(customer.created_at).toLocaleDateString()}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex space-x-2">
@@ -226,6 +314,7 @@ export const CustomerManagement = () => {
                           size="sm"
                           onClick={() => handleEdit(customer)}
                           className="text-blue-600 hover:text-blue-900"
+                          disabled={isLoading}
                         >
                           <Edit className="h-4 w-4" />
                         </Button>
@@ -234,6 +323,7 @@ export const CustomerManagement = () => {
                           size="sm"
                           onClick={() => handleDelete(customer.id)}
                           className="text-red-600 hover:text-red-900"
+                          disabled={isLoading}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
