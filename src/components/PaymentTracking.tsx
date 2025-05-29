@@ -6,8 +6,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Badge } from '@/components/ui/badge';
-import { Plus, Search, Check, X, CreditCard } from 'lucide-react';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Plus, Calendar as CalendarIcon, Search, DollarSign } from 'lucide-react';
+import { format } from 'date-fns';
+import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -18,6 +21,7 @@ interface Payment {
   amount: number;
   payment_date: string;
   payment_method: string;
+  created_at: string;
 }
 
 interface Customer {
@@ -32,14 +36,15 @@ export const PaymentTracking = () => {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [useCustomAmount, setUseCustomAmount] = useState(false);
   const [formData, setFormData] = useState({
     customerId: '',
     customerName: '',
     amount: '',
-    paymentDate: new Date().toISOString().split('T')[0],
-    paymentMethod: '',
-    isCustomAmount: false,
-    pendingAmount: 0
+    customAmount: '',
+    paymentDate: new Date(),
+    paymentMethod: 'Cash',
+    maxPendingAmount: 0
   });
 
   useEffect(() => {
@@ -66,7 +71,8 @@ export const PaymentTracking = () => {
         customer_name: payment.customers?.name || 'Unknown',
         amount: payment.amount,
         payment_date: payment.payment_date,
-        payment_method: payment.payment_method
+        payment_method: payment.payment_method,
+        created_at: payment.created_at
       })) || [];
 
       setPayments(formattedPayments);
@@ -103,45 +109,51 @@ export const PaymentTracking = () => {
 
       setCustomers(customersWithBalances);
     } catch (error) {
-      console.error('Error loading customers with balances:', error);
+      console.error('Error loading customers:', error);
     }
   };
 
   const filteredPayments = payments.filter(payment =>
     payment.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    payment.payment_method.toLowerCase().includes(searchTerm.toLowerCase())
+    payment.payment_method.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    payment.payment_date.includes(searchTerm)
   );
 
-  const totalPayments = payments.reduce((sum, payment) => sum + payment.amount, 0);
-  const customersWithPendingBalance = customers.filter(c => c.pending_amount > 0);
-  const totalPendingAmount = customersWithPendingBalance.reduce((sum, customer) => sum + customer.pending_amount, 0);
+  const todaysPayments = payments.filter(payment => 
+    payment.payment_date === format(new Date(), 'yyyy-MM-dd')
+  );
+
+  const totalPendingAmount = customers.reduce((sum, customer) => sum + customer.pending_amount, 0);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!formData.customerId || !formData.amount) {
+    if (!formData.customerId) {
       toast({
         title: "Error",
-        description: "Customer and amount are required fields",
+        description: "Please select a customer",
         variant: "destructive"
       });
       return;
     }
 
-    const amount = parseFloat(formData.amount);
-    if (isNaN(amount) || amount <= 0) {
+    const paymentAmount = useCustomAmount ? 
+      parseFloat(formData.customAmount) : 
+      parseFloat(formData.amount);
+
+    if (isNaN(paymentAmount) || paymentAmount <= 0) {
       toast({
         title: "Error",
-        description: "Please enter a valid amount",
+        description: "Please enter a valid payment amount",
         variant: "destructive"
       });
       return;
     }
 
-    if (!formData.isCustomAmount && amount > formData.pendingAmount) {
+    if (paymentAmount > formData.maxPendingAmount) {
       toast({
         title: "Error",
-        description: "Payment amount cannot be greater than pending amount",
+        description: "Payment amount cannot exceed pending amount",
         variant: "destructive"
       });
       return;
@@ -149,29 +161,31 @@ export const PaymentTracking = () => {
 
     try {
       setIsLoading(true);
-      
-      // Insert payment record
+
+      // Add payment record
       const { error: paymentError } = await supabase
         .from('payments')
         .insert({
           customer_id: formData.customerId,
-          amount,
-          payment_date: formData.paymentDate,
-          payment_method: formData.paymentMethod || 'Cash'
+          amount: paymentAmount,
+          payment_date: format(formData.paymentDate, 'yyyy-MM-dd'),
+          payment_method: formData.paymentMethod
         });
 
       if (paymentError) throw paymentError;
 
       // Update customer balance
-      const newPendingAmount = Math.max(0, formData.pendingAmount - amount);
-      
+      const newPendingAmount = formData.maxPendingAmount - paymentAmount;
+
       const { error: balanceError } = await supabase
         .from('customer_balances')
-        .update({
+        .upsert({
+          customer_id: formData.customerId,
           pending_amount: newPendingAmount,
           updated_at: new Date().toISOString()
-        })
-        .eq('customer_id', formData.customerId);
+        }, {
+          onConflict: 'customer_id'
+        });
 
       if (balanceError) throw balanceError;
 
@@ -183,19 +197,19 @@ export const PaymentTracking = () => {
       // Reload data and reset form
       await loadPayments();
       await loadCustomersWithBalances();
-      
       setFormData({
         customerId: '',
         customerName: '',
         amount: '',
-        paymentDate: new Date().toISOString().split('T')[0],
-        paymentMethod: '',
-        isCustomAmount: false,
-        pendingAmount: 0
+        customAmount: '',
+        paymentDate: new Date(),
+        paymentMethod: 'Cash',
+        maxPendingAmount: 0
       });
+      setUseCustomAmount(false);
       setIsAddDialogOpen(false);
     } catch (error) {
-      console.error('Error recording payment:', error);
+      console.error('Error adding payment:', error);
       toast({
         title: "Error",
         description: "Failed to record payment",
@@ -212,17 +226,10 @@ export const PaymentTracking = () => {
       ...formData,
       customerId,
       customerName: customer?.name || '',
-      pendingAmount: customer?.pending_amount || 0,
-      amount: formData.isCustomAmount ? formData.amount : (customer?.pending_amount || 0).toString()
+      amount: customer?.pending_amount.toString() || '0',
+      maxPendingAmount: customer?.pending_amount || 0
     });
-  };
-
-  const handleCustomAmountToggle = (isCustom: boolean) => {
-    setFormData({
-      ...formData,
-      isCustomAmount: isCustom,
-      amount: isCustom ? '' : formData.pendingAmount.toString()
-    });
+    setUseCustomAmount(false);
   };
 
   return (
@@ -249,7 +256,7 @@ export const PaymentTracking = () => {
                     <SelectValue placeholder="Select customer" />
                   </SelectTrigger>
                   <SelectContent>
-                    {customers.map((customer) => (
+                    {customers.filter(c => c.pending_amount > 0).map((customer) => (
                       <SelectItem key={customer.id} value={customer.id}>
                         {customer.name} - ₹{customer.pending_amount.toFixed(2)} pending
                       </SelectItem>
@@ -259,73 +266,101 @@ export const PaymentTracking = () => {
               </div>
 
               {formData.customerId && (
-                <div className="p-3 bg-blue-50 rounded-lg">
-                  <p className="text-sm font-medium text-blue-900">
-                    Pending Amount: ₹{formData.pendingAmount.toFixed(2)}
-                  </p>
-                </div>
+                <>
+                  <div className="p-3 bg-blue-50 rounded-lg">
+                    <p className="text-sm font-medium text-blue-900">
+                      Pending Amount: ₹{formData.maxPendingAmount.toFixed(2)}
+                    </p>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="radio"
+                        id="fullPayment"
+                        name="paymentType"
+                        checked={!useCustomAmount}
+                        onChange={() => setUseCustomAmount(false)}
+                        className="rounded"
+                      />
+                      <Label htmlFor="fullPayment">Pay Full Amount (₹{formData.maxPendingAmount.toFixed(2)})</Label>
+                    </div>
+                    
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="radio"
+                        id="customPayment"
+                        name="paymentType"
+                        checked={useCustomAmount}
+                        onChange={() => setUseCustomAmount(true)}
+                        className="rounded"
+                      />
+                      <Label htmlFor="customPayment">Pay Custom Amount</Label>
+                    </div>
+                  </div>
+
+                  {useCustomAmount && (
+                    <div>
+                      <Label htmlFor="customAmount">Custom Amount (₹) *</Label>
+                      <Input
+                        id="customAmount"
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        max={formData.maxPendingAmount}
+                        value={formData.customAmount}
+                        onChange={(e) => setFormData({ ...formData, customAmount: e.target.value })}
+                        placeholder="Enter amount"
+                        required
+                      />
+                    </div>
+                  )}
+                </>
               )}
 
               <div>
-                <div className="flex items-center gap-4 mb-2">
-                  <Label>Payment Amount *</Label>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      variant={!formData.isCustomAmount ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => handleCustomAmountToggle(false)}
-                      disabled={!formData.customerId}
-                    >
-                      Full Amount
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={formData.isCustomAmount ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => handleCustomAmountToggle(true)}
-                    >
-                      Custom
-                    </Button>
-                  </div>
-                </div>
-                <Input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  max={formData.isCustomAmount ? undefined : formData.pendingAmount}
-                  value={formData.amount}
-                  onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                  placeholder="Enter amount"
-                  required
-                  disabled={!formData.customerId}
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="paymentDate">Payment Date</Label>
-                <Input
-                  id="paymentDate"
-                  type="date"
-                  value={formData.paymentDate}
-                  onChange={(e) => setFormData({ ...formData, paymentDate: e.target.value })}
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="paymentMethod">Payment Method</Label>
-                <Select onValueChange={(value) => setFormData({ ...formData, paymentMethod: value })}>
+                <Label htmlFor="paymentMethod">Payment Method *</Label>
+                <Select 
+                  value={formData.paymentMethod} 
+                  onValueChange={(value) => setFormData({ ...formData, paymentMethod: value })}
+                >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select payment method" />
+                    <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Cash">Cash</SelectItem>
-                    <SelectItem value="UPI">UPI</SelectItem>
                     <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
-                    <SelectItem value="Card">Card</SelectItem>
+                    <SelectItem value="UPI">UPI</SelectItem>
                     <SelectItem value="Cheque">Cheque</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div>
+                <Label>Payment Date *</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className={cn(
+                        "w-full justify-start text-left font-normal",
+                        !formData.paymentDate && "text-muted-foreground"
+                      )}
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {formData.paymentDate ? format(formData.paymentDate, "dd/MM/yyyy") : <span>Pick a date</span>}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={formData.paymentDate}
+                      onSelect={(date) => date && setFormData({ ...formData, paymentDate: date })}
+                      initialFocus
+                      className="p-3 pointer-events-auto"
+                    />
+                  </PopoverContent>
+                </Popover>
               </div>
 
               <div className="flex gap-2 pt-4">
@@ -346,54 +381,106 @@ export const PaymentTracking = () => {
         </Dialog>
       </div>
 
-      {/* Payment Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <Card className="p-6">
           <div className="flex items-center">
-            <div className="p-3 rounded-full bg-red-100">
-              <X className="h-6 w-6 text-red-600" />
-            </div>
+            <DollarSign className="h-8 w-8 text-green-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Pending Payments</p>
-              <p className="text-2xl font-bold text-red-600">₹{totalPendingAmount.toFixed(2)}</p>
-              <p className="text-sm text-gray-500">{customersWithPendingBalance.length} customers</p>
+              <p className="text-sm font-medium text-gray-500">Today's Collections</p>
+              <p className="text-2xl font-bold text-gray-900">
+                ₹{todaysPayments.reduce((sum, payment) => sum + payment.amount, 0).toFixed(2)}
+              </p>
             </div>
           </div>
         </Card>
 
         <Card className="p-6">
           <div className="flex items-center">
-            <div className="p-3 rounded-full bg-green-100">
-              <Check className="h-6 w-6 text-green-600" />
-            </div>
+            <DollarSign className="h-8 w-8 text-blue-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Total Payments</p>
-              <p className="text-2xl font-bold text-green-600">₹{totalPayments.toFixed(2)}</p>
-              <p className="text-sm text-gray-500">{payments.length} payments</p>
+              <p className="text-sm font-medium text-gray-500">Total Pending</p>
+              <p className="text-2xl font-bold text-gray-900">₹{totalPendingAmount.toFixed(2)}</p>
             </div>
           </div>
         </Card>
 
         <Card className="p-6">
           <div className="flex items-center">
-            <div className="p-3 rounded-full bg-blue-100">
-              <CreditCard className="h-6 w-6 text-blue-600" />
-            </div>
+            <DollarSign className="h-8 w-8 text-purple-600" />
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Total Revenue</p>
-              <p className="text-2xl font-bold text-blue-600">₹{(totalPayments + totalPendingAmount).toFixed(2)}</p>
-              <p className="text-sm text-gray-500">Collected + Pending</p>
+              <p className="text-sm font-medium text-gray-500">This Month</p>
+              <p className="text-2xl font-bold text-gray-900">
+                ₹{payments
+                  .filter(p => new Date(p.payment_date).getMonth() === new Date().getMonth())
+                  .reduce((sum, payment) => sum + payment.amount, 0)
+                  .toFixed(2)}
+              </p>
+            </div>
+          </div>
+        </Card>
+
+        <Card className="p-6">
+          <div className="flex items-center">
+            <DollarSign className="h-8 w-8 text-orange-600" />
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-500">Customers with Pending</p>
+              <p className="text-2xl font-bold text-gray-900">
+                {customers.filter(c => c.pending_amount > 0).length}
+              </p>
             </div>
           </div>
         </Card>
       </div>
+
+      {/* Outstanding Balances */}
+      <Card className="p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Outstanding Balances</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Customer
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Pending Amount
+                </th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {customers.filter(customer => customer.pending_amount > 0).length === 0 ? (
+                <tr>
+                  <td colSpan={2} className="px-6 py-8 text-center text-gray-500">
+                    No outstanding balances
+                  </td>
+                </tr>
+              ) : (
+                customers
+                  .filter(customer => customer.pending_amount > 0)
+                  .sort((a, b) => b.pending_amount - a.pending_amount)
+                  .map((customer) => (
+                    <tr key={customer.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {customer.name}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-red-600">
+                        ₹{customer.pending_amount.toFixed(2)}
+                      </td>
+                    </tr>
+                  ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
 
       {/* Search */}
       <Card className="p-4">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
           <Input
-            placeholder="Search by customer name or payment method..."
+            placeholder="Search payments by customer name, method, or date..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-10"
@@ -409,13 +496,13 @@ export const PaymentTracking = () => {
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Date
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Customer
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Amount
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Date
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Method
@@ -432,12 +519,15 @@ export const PaymentTracking = () => {
               ) : filteredPayments.length === 0 ? (
                 <tr>
                   <td colSpan={4} className="px-6 py-8 text-center text-gray-500">
-                    No payment records found. Record your first payment to get started.
+                    No payments found. Record your first payment to get started.
                   </td>
                 </tr>
               ) : (
                 filteredPayments.map((payment) => (
                   <tr key={payment.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {format(new Date(payment.payment_date), 'dd/MM/yyyy')}
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                       {payment.customer_name}
                     </td>
@@ -445,10 +535,7 @@ export const PaymentTracking = () => {
                       ₹{payment.amount.toFixed(2)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {new Date(payment.payment_date).toLocaleDateString()}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      <Badge variant="outline">{payment.payment_method}</Badge>
+                      {payment.payment_method}
                     </td>
                   </tr>
                 ))

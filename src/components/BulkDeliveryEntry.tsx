@@ -42,6 +42,7 @@ interface BulkEntry {
   quantity: number;
   pricePerLiter: number;
   groceryItems: GroceryItem[];
+  isGroceryOnly: boolean;
 }
 
 interface CustomerMemory {
@@ -64,7 +65,8 @@ export const BulkDeliveryEntry = () => {
     milkTypeName: '',
     quantity: 0,
     pricePerLiter: 0,
-    groceryItems: []
+    groceryItems: [],
+    isGroceryOnly: false
   });
   const [isLoading, setIsLoading] = useState(false);
 
@@ -85,8 +87,9 @@ export const BulkDeliveryEntry = () => {
         milkTypeId: memory?.milkTypeId || '',
         milkTypeName: memory?.milkTypeId ? milkTypes.find(m => m.id === memory.milkTypeId)?.name || '' : '',
         quantity: memory?.quantity || 0,
-        pricePerLiter: memory?.milkTypeId ? milkTypes.find(m => m.id === memory.milkTypeId)?.price_per_liter || 0 : 0,
-        groceryItems: []
+        pricePerLiter: memory?.milkTypeId ? Math.ceil(milkTypes.find(m => m.id === memory.milkTypeId)?.price_per_liter || 0) : 0,
+        groceryItems: [],
+        isGroceryOnly: false
       });
     }
   }, [currentCustomerIndex, customers, customerMemory, milkTypes]);
@@ -149,7 +152,7 @@ export const BulkDeliveryEntry = () => {
         if (!memory[record.customer_id]) {
           memory[record.customer_id] = {
             milkTypeId: record.milk_type_id,
-            quantity: record.quantity
+            quantity: Math.round(record.quantity * 1000) // Convert liters to ml
           };
         }
       });
@@ -160,20 +163,30 @@ export const BulkDeliveryEntry = () => {
     }
   };
 
-  const updateEntry = (field: keyof BulkEntry, value: string | number) => {
+  const updateEntry = (field: keyof BulkEntry, value: string | number | boolean) => {
     if (field === 'milkTypeId') {
       const milk = milkTypes.find(m => m.id === value);
+      const roundedPrice = Math.ceil(milk?.price_per_liter || 0);
       setCurrentEntry({
         ...currentEntry,
         milkTypeId: value as string,
         milkTypeName: milk?.name || '',
-        pricePerLiter: milk?.price_per_liter || 0
+        pricePerLiter: roundedPrice
       });
     } else if (field === 'quantity') {
       const numericValue = typeof value === 'string' ? parseFloat(value) || 0 : value;
       setCurrentEntry({ 
         ...currentEntry, 
         quantity: numericValue
+      });
+    } else if (field === 'isGroceryOnly') {
+      setCurrentEntry({ 
+        ...currentEntry, 
+        isGroceryOnly: value as boolean,
+        milkTypeId: value ? '' : currentEntry.milkTypeId,
+        milkTypeName: value ? '' : currentEntry.milkTypeName,
+        quantity: value ? 0 : currentEntry.quantity,
+        pricePerLiter: value ? 0 : currentEntry.pricePerLiter
       });
     } else {
       setCurrentEntry({ ...currentEntry, [field]: value });
@@ -204,7 +217,7 @@ export const BulkDeliveryEntry = () => {
         quantity: numericValue
       };
     } else if (field === 'price') {
-      const numericValue = typeof value === 'string' ? parseFloat(value) || 0 : value;
+      const numericValue = typeof value === 'string' ? Math.ceil(parseFloat(value) || 0) : Math.ceil(value);
       updatedItems[itemIndex] = {
         ...updatedItems[itemIndex],
         price: numericValue
@@ -229,20 +242,42 @@ export const BulkDeliveryEntry = () => {
   };
 
   const calculateTotal = () => {
-    // Convert ml to liters for price calculation
-    const liters = currentEntry.quantity / 1000;
-    const milkTotal = liters * currentEntry.pricePerLiter;
+    let milkTotal = 0;
+    if (!currentEntry.isGroceryOnly && currentEntry.quantity && currentEntry.pricePerLiter) {
+      const liters = currentEntry.quantity / 1000;
+      milkTotal = liters * currentEntry.pricePerLiter;
+    }
+    
     const groceryTotal = currentEntry.groceryItems.reduce((sum, item) => {
       return sum + (item.quantity * item.price);
     }, 0);
-    return milkTotal + groceryTotal;
+    
+    return Math.ceil(milkTotal + groceryTotal);
   };
 
   const saveCurrentEntry = async () => {
-    if (!currentEntry.customerId || !currentEntry.milkTypeId || currentEntry.quantity <= 0) {
+    if (!currentEntry.customerId) {
       toast({
         title: "Error",
-        description: "Please fill in all required fields",
+        description: "Please select a customer",
+        variant: "destructive"
+      });
+      return false;
+    }
+
+    if (!currentEntry.isGroceryOnly && (!currentEntry.milkTypeId || currentEntry.quantity <= 0)) {
+      toast({
+        title: "Error",
+        description: "Please fill in milk details or select grocery only mode",
+        variant: "destructive"
+      });
+      return false;
+    }
+
+    if (currentEntry.groceryItems.length === 0 && currentEntry.isGroceryOnly) {
+      toast({
+        title: "Error",
+        description: "Please add at least one grocery item",
         variant: "destructive"
       });
       return false;
@@ -250,50 +285,44 @@ export const BulkDeliveryEntry = () => {
 
     setIsLoading(true);
     try {
-      const totalAmount = calculateTotal();
-      // Convert ml to liters for storage
-      const quantityInLiters = currentEntry.quantity / 1000;
+      let deliveryRecordId = null;
       
-      console.log('Saving delivery record:', {
-        customer_id: currentEntry.customerId,
-        milk_type_id: currentEntry.milkTypeId,
-        quantity: quantityInLiters,
-        price_per_liter: currentEntry.pricePerLiter,
-        total_amount: totalAmount,
-        delivery_date: selectedDate.toISOString().split('T')[0]
-      });
-      
-      // Insert delivery record
-      const { data: deliveryData, error: deliveryError } = await supabase
-        .from('delivery_records')
-        .insert({
-          customer_id: currentEntry.customerId,
-          milk_type_id: currentEntry.milkTypeId,
-          quantity: quantityInLiters,
-          price_per_liter: currentEntry.pricePerLiter,
-          total_amount: totalAmount,
-          delivery_date: selectedDate.toISOString().split('T')[0]
-        })
-        .select()
-        .single();
+      // Save delivery record only if not grocery-only or if there's milk
+      if (!currentEntry.isGroceryOnly && currentEntry.quantity > 0) {
+        const totalAmount = calculateTotal();
+        const quantityInLiters = currentEntry.quantity / 1000;
+        
+        const { data: deliveryData, error: deliveryError } = await supabase
+          .from('delivery_records')
+          .insert({
+            customer_id: currentEntry.customerId,
+            milk_type_id: currentEntry.milkTypeId,
+            quantity: quantityInLiters,
+            price_per_liter: currentEntry.pricePerLiter,
+            total_amount: totalAmount,
+            delivery_date: format(selectedDate, 'yyyy-MM-dd')
+          })
+          .select()
+          .single();
 
-      if (deliveryError) {
-        console.error('Delivery error:', deliveryError);
-        throw deliveryError;
+        if (deliveryError) {
+          console.error('Delivery error:', deliveryError);
+          throw deliveryError;
+        }
+
+        deliveryRecordId = deliveryData.id;
       }
 
-      console.log('Delivery record saved:', deliveryData);
-
-      // Insert grocery items if any
+      // Insert grocery items
       if (currentEntry.groceryItems.length > 0) {
         const groceryItemsToInsert = currentEntry.groceryItems
           .filter(item => item.name && item.quantity > 0)
           .map(item => ({
-            delivery_record_id: deliveryData.id,
+            delivery_record_id: deliveryRecordId,
             name: item.name,
             quantity: item.quantity,
             unit: item.unit,
-            price: item.price,
+            price: Math.ceil(item.price),
             description: item.description || ''
           }));
 
@@ -306,44 +335,46 @@ export const BulkDeliveryEntry = () => {
             console.error('Grocery error:', groceryError);
             throw groceryError;
           }
-          console.log('Grocery items saved');
         }
       }
 
-      // Update customer balance using upsert to handle existing records
-      const { data: existingBalance } = await supabase
-        .from('customer_balances')
-        .select('pending_amount')
-        .eq('customer_id', currentEntry.customerId)
-        .maybeSingle();
+      // Update customer balance
+      const totalAmount = calculateTotal();
+      if (totalAmount > 0) {
+        const { data: existingBalance } = await supabase
+          .from('customer_balances')
+          .select('pending_amount')
+          .eq('customer_id', currentEntry.customerId)
+          .maybeSingle();
 
-      const newPendingAmount = (existingBalance?.pending_amount || 0) + totalAmount;
+        const newPendingAmount = (existingBalance?.pending_amount || 0) + totalAmount;
 
-      const { error: balanceError } = await supabase
-        .from('customer_balances')
-        .upsert({
-          customer_id: currentEntry.customerId,
-          pending_amount: newPendingAmount,
-          updated_at: new Date().toISOString()
-        }, {
-          onConflict: 'customer_id'
-        });
+        const { error: balanceError } = await supabase
+          .from('customer_balances')
+          .upsert({
+            customer_id: currentEntry.customerId,
+            pending_amount: newPendingAmount,
+            updated_at: new Date().toISOString()
+          }, {
+            onConflict: 'customer_id'
+          });
 
-      if (balanceError) {
-        console.error('Balance error:', balanceError);
-        throw balanceError;
+        if (balanceError) {
+          console.error('Balance error:', balanceError);
+          throw balanceError;
+        }
       }
 
-      console.log('Customer balance updated');
-
-      // Update customer memory with ml quantity
-      setCustomerMemory(prev => ({
-        ...prev,
-        [currentEntry.customerId]: {
-          milkTypeId: currentEntry.milkTypeId,
-          quantity: currentEntry.quantity
-        }
-      }));
+      // Update customer memory
+      if (!currentEntry.isGroceryOnly && currentEntry.milkTypeId && currentEntry.quantity > 0) {
+        setCustomerMemory(prev => ({
+          ...prev,
+          [currentEntry.customerId]: {
+            milkTypeId: currentEntry.milkTypeId,
+            quantity: currentEntry.quantity
+          }
+        }));
+      }
 
       return true;
     } catch (error) {
@@ -364,7 +395,7 @@ export const BulkDeliveryEntry = () => {
     if (saved) {
       toast({
         title: "Success",
-        description: `Delivery saved for ${currentEntry.customerName}`,
+        description: `Entry saved for ${currentEntry.customerName}`,
       });
       
       if (currentCustomerIndex < customers.length - 1) {
@@ -426,7 +457,7 @@ export const BulkDeliveryEntry = () => {
                 )}
               >
                 <CalendarIcon className="mr-2 h-4 w-4" />
-                {selectedDate ? format(selectedDate, "PPP") : <span>Pick a date</span>}
+                {selectedDate ? format(selectedDate, "dd/MM/yyyy") : <span>Pick a date</span>}
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0" align="start">
@@ -435,6 +466,7 @@ export const BulkDeliveryEntry = () => {
                 selected={selectedDate}
                 onSelect={(date) => date && setSelectedDate(date)}
                 initialFocus
+                className="p-3 pointer-events-auto"
               />
             </PopoverContent>
           </Popover>
@@ -467,51 +499,66 @@ export const BulkDeliveryEntry = () => {
           </div>
         </div>
 
-        {/* Milk Delivery Section */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <div>
-            <Label>Milk Type *</Label>
-            <Select value={currentEntry.milkTypeId} onValueChange={(value) => updateEntry('milkTypeId', value)}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select milk type" />
-              </SelectTrigger>
-              <SelectContent>
-                {milkTypes.map((milk) => (
-                  <SelectItem key={milk.id} value={milk.id}>
-                    {milk.name} - ₹{milk.price_per_liter}/L
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div>
-            <Label>Quantity (ml) *</Label>
-            <Input
-              type="number"
-              step="50"
-              min="0"
-              value={currentEntry.quantity || ''}
-              onChange={(e) => updateEntry('quantity', e.target.value)}
-              placeholder="e.g., 500"
+        {/* Grocery Only Toggle */}
+        <div className="mb-4">
+          <label className="flex items-center space-x-2">
+            <input
+              type="checkbox"
+              checked={currentEntry.isGroceryOnly}
+              onChange={(e) => updateEntry('isGroceryOnly', e.target.checked)}
+              className="rounded"
             />
-          </div>
-
-          <div>
-            <Label>Price per Liter (₹)</Label>
-            <Input
-              type="number"
-              value={currentEntry.pricePerLiter || ''}
-              readOnly
-              className="bg-gray-100"
-            />
-          </div>
+            <span className="text-sm font-medium">Grocery Only (No Milk)</span>
+          </label>
         </div>
+
+        {/* Milk Delivery Section */}
+        {!currentEntry.isGroceryOnly && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div>
+              <Label>Milk Type *</Label>
+              <Select value={currentEntry.milkTypeId} onValueChange={(value) => updateEntry('milkTypeId', value)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select milk type" />
+                </SelectTrigger>
+                <SelectContent>
+                  {milkTypes.map((milk) => (
+                    <SelectItem key={milk.id} value={milk.id}>
+                      {milk.name} - ₹{Math.ceil(milk.price_per_liter)}/L
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label>Quantity (ml) *</Label>
+              <Input
+                type="number"
+                step="50"
+                min="0"
+                value={currentEntry.quantity || ''}
+                onChange={(e) => updateEntry('quantity', e.target.value)}
+                placeholder="e.g., 500"
+              />
+            </div>
+
+            <div>
+              <Label>Price per Liter (₹)</Label>
+              <Input
+                type="number"
+                value={currentEntry.pricePerLiter || ''}
+                readOnly
+                className="bg-gray-100"
+              />
+            </div>
+          </div>
+        )}
 
         {/* Grocery Items Section */}
         <div className="border-t pt-4">
           <div className="flex items-center justify-between mb-3">
-            <h4 className="font-medium text-gray-900">Grocery Items (Optional)</h4>
+            <h4 className="font-medium text-gray-900">Grocery Items</h4>
             <Button
               variant="outline"
               size="sm"
@@ -590,13 +637,15 @@ export const BulkDeliveryEntry = () => {
         </div>
 
         {/* Total */}
-        {(currentEntry.quantity && currentEntry.pricePerLiter) && (
+        {((!currentEntry.isGroceryOnly && currentEntry.quantity && currentEntry.pricePerLiter) || currentEntry.groceryItems.some(item => item.quantity && item.price)) && (
           <div className="mt-4 p-3 bg-blue-50 rounded-lg">
             <p className="text-sm font-medium text-blue-900">
-              Total Amount: ₹{calculateTotal().toFixed(2)}
-              <span className="text-xs text-gray-600 ml-2">
-                ({currentEntry.quantity}ml = {(currentEntry.quantity / 1000).toFixed(2)}L)
-              </span>
+              Total Amount: ₹{calculateTotal()}
+              {!currentEntry.isGroceryOnly && currentEntry.quantity && (
+                <span className="text-xs text-gray-600 ml-2">
+                  ({currentEntry.quantity}ml = {(currentEntry.quantity / 1000).toFixed(2)}L)
+                </span>
+              )}
             </p>
           </div>
         )}

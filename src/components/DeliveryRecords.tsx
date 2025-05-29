@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -43,7 +42,6 @@ export const DeliveryRecords = () => {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [milkTypes, setMilkTypes] = useState<MilkType[]>([]);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [searchTerm, setSearchTerm] = useState('');
   const [isBulkMode, setIsBulkMode] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -169,7 +167,7 @@ export const DeliveryRecords = () => {
   );
 
   const todaysRecords = deliveryRecords.filter(record => 
-    record.delivery_date === new Date().toISOString().split('T')[0]
+    record.delivery_date === format(new Date(), 'yyyy-MM-dd')
   );
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -185,7 +183,7 @@ export const DeliveryRecords = () => {
     }
 
     const quantityInMl = parseFloat(formData.quantity);
-    const price = parseFloat(formData.pricePerLiter);
+    const price = Math.ceil(parseFloat(formData.pricePerLiter));
 
     if (isNaN(quantityInMl) || quantityInMl <= 0 || isNaN(price) || price <= 0) {
       toast({
@@ -198,9 +196,8 @@ export const DeliveryRecords = () => {
 
     try {
       setIsLoading(true);
-      // Convert ml to liters for storage and calculation
       const quantityInLiters = quantityInMl / 1000;
-      const totalAmount = quantityInLiters * price;
+      const totalAmount = Math.ceil(quantityInLiters * price);
 
       const { error } = await supabase
         .from('delivery_records')
@@ -210,7 +207,7 @@ export const DeliveryRecords = () => {
           quantity: quantityInLiters,
           price_per_liter: price,
           total_amount: totalAmount,
-          delivery_date: formData.deliveryDate.toISOString().split('T')[0],
+          delivery_date: format(formData.deliveryDate, 'yyyy-MM-dd'),
           notes: formData.notes || null
         });
 
@@ -240,7 +237,6 @@ export const DeliveryRecords = () => {
         description: "Delivery record added successfully"
       });
 
-      // Reload records and reset form
       await loadDeliveryRecords();
       setFormData({
         customerId: '',
@@ -280,12 +276,14 @@ export const DeliveryRecords = () => {
       ...formData,
       milkTypeId,
       milkTypeName: milkType?.name || '',
-      pricePerLiter: milkType?.price_per_liter.toString() || ''
+      pricePerLiter: Math.ceil(milkType?.price_per_liter || 0).toString()
     });
   };
 
   return (
     <div className="space-y-6">
+      
+      
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <h2 className="text-3xl font-bold text-gray-900">Delivery Records</h2>
@@ -346,7 +344,7 @@ export const DeliveryRecords = () => {
                   <SelectContent>
                     {milkTypes.map((milk) => (
                       <SelectItem key={milk.id} value={milk.id}>
-                        {milk.name} - ₹{milk.price_per_liter}/L
+                        {milk.name} - ₹{Math.ceil(milk.price_per_liter)}/L
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -372,11 +370,11 @@ export const DeliveryRecords = () => {
                 <Input
                   id="price"
                   type="number"
-                  step="0.01"
+                  step="1"
                   min="0"
                   value={formData.pricePerLiter}
                   onChange={(e) => setFormData({ ...formData, pricePerLiter: e.target.value })}
-                  placeholder="e.g., 55.00"
+                  placeholder="e.g., 55"
                   required
                 />
               </div>
@@ -393,7 +391,7 @@ export const DeliveryRecords = () => {
                       )}
                     >
                       <CalendarIcon className="mr-2 h-4 w-4" />
-                      {formData.deliveryDate ? format(formData.deliveryDate, "PPP") : <span>Pick a date</span>}
+                      {formData.deliveryDate ? format(formData.deliveryDate, "dd/MM/yyyy") : <span>Pick a date</span>}
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0" align="start">
@@ -421,7 +419,7 @@ export const DeliveryRecords = () => {
               {formData.quantity && formData.pricePerLiter && (
                 <div className="p-3 bg-gray-50 rounded-lg">
                   <p className="text-sm font-medium">
-                    Total Amount: ₹{((parseFloat(formData.quantity) / 1000) * parseFloat(formData.pricePerLiter)).toFixed(2)}
+                    Total Amount: ₹{Math.ceil((parseFloat(formData.quantity) / 1000) * Math.ceil(parseFloat(formData.pricePerLiter)))}
                     <span className="text-xs text-gray-600 ml-2">
                       ({formData.quantity}ml = {(parseFloat(formData.quantity) / 1000).toFixed(2)}L)
                     </span>
@@ -530,7 +528,7 @@ export const DeliveryRecords = () => {
                 filteredRecords.map((record) => (
                   <tr key={record.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {new Date(record.delivery_date).toLocaleDateString()}
+                      {format(new Date(record.delivery_date), 'dd/MM/yyyy')}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                       {record.customer_name}
@@ -542,10 +540,10 @@ export const DeliveryRecords = () => {
                       {(record.quantity * 1000).toFixed(0)}ml
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      ₹{record.price_per_liter.toFixed(2)}/L
+                      ₹{record.price_per_liter.toFixed(0)}/L
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
-                      ₹{record.total_amount.toFixed(2)}
+                      ₹{record.total_amount.toFixed(0)}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900 max-w-xs truncate">
                       {record.notes || '-'}
