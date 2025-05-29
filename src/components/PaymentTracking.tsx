@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,50 +9,114 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Badge } from '@/components/ui/badge';
 import { Plus, Search, Check, X, CreditCard } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 
 interface Payment {
   id: string;
-  customerId: string;
-  customerName: string;
+  customer_id: string;
+  customer_name: string;
   amount: number;
-  paymentDate: string;
-  status: 'pending' | 'cleared';
-  paymentMethod: string;
-  notes: string;
+  payment_date: string;
+  payment_method: string;
+}
+
+interface Customer {
+  id: string;
+  name: string;
+  pending_amount: number;
 }
 
 export const PaymentTracking = () => {
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'cleared'>('all');
+  const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
     customerId: '',
     customerName: '',
     amount: '',
     paymentDate: new Date().toISOString().split('T')[0],
     paymentMethod: '',
-    notes: ''
+    isCustomAmount: false,
+    pendingAmount: 0
   });
 
-  // Mock customers for demo
-  const mockCustomers = [
-    { id: '1', name: 'John Doe' },
-    { id: '2', name: 'Jane Smith' },
-  ];
+  useEffect(() => {
+    loadPayments();
+    loadCustomersWithBalances();
+  }, []);
 
-  const filteredPayments = payments.filter(payment => {
-    const matchesSearch = payment.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         payment.paymentMethod.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || payment.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  const loadPayments = async () => {
+    try {
+      setIsLoading(true);
+      const { data, error } = await supabase
+        .from('payments')
+        .select(`
+          *,
+          customers(name)
+        `)
+        .order('payment_date', { ascending: false });
 
-  const pendingPayments = payments.filter(payment => payment.status === 'pending');
-  const totalPending = pendingPayments.reduce((sum, payment) => sum + payment.amount, 0);
-  const totalCleared = payments.filter(p => p.status === 'cleared').reduce((sum, payment) => sum + payment.amount, 0);
+      if (error) throw error;
 
-  const handleSubmit = (e: React.FormEvent) => {
+      const formattedPayments = data?.map(payment => ({
+        id: payment.id,
+        customer_id: payment.customer_id,
+        customer_name: payment.customers?.name || 'Unknown',
+        amount: payment.amount,
+        payment_date: payment.payment_date,
+        payment_method: payment.payment_method
+      })) || [];
+
+      setPayments(formattedPayments);
+    } catch (error) {
+      console.error('Error loading payments:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load payments",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const loadCustomersWithBalances = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('customers')
+        .select(`
+          id,
+          name,
+          customer_balances(pending_amount)
+        `)
+        .order('name');
+
+      if (error) throw error;
+
+      const customersWithBalances = data?.map(customer => ({
+        id: customer.id,
+        name: customer.name,
+        pending_amount: customer.customer_balances?.[0]?.pending_amount || 0
+      })) || [];
+
+      setCustomers(customersWithBalances);
+    } catch (error) {
+      console.error('Error loading customers with balances:', error);
+    }
+  };
+
+  const filteredPayments = payments.filter(payment =>
+    payment.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    payment.payment_method.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const totalPayments = payments.reduce((sum, payment) => sum + payment.amount, 0);
+  const customersWithPendingBalance = customers.filter(c => c.pending_amount > 0);
+  const totalPendingAmount = customersWithPendingBalance.reduce((sum, customer) => sum + customer.pending_amount, 0);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!formData.customerId || !formData.amount) {
@@ -74,64 +138,90 @@ export const PaymentTracking = () => {
       return;
     }
 
-    const newPayment: Payment = {
-      id: Date.now().toString(),
-      customerId: formData.customerId,
-      customerName: formData.customerName,
-      amount,
-      paymentDate: formData.paymentDate,
-      status: 'pending',
-      paymentMethod: formData.paymentMethod || 'Cash',
-      notes: formData.notes
-    };
+    if (!formData.isCustomAmount && amount > formData.pendingAmount) {
+      toast({
+        title: "Error",
+        description: "Payment amount cannot be greater than pending amount",
+        variant: "destructive"
+      });
+      return;
+    }
 
-    setPayments([...payments, newPayment]);
-    toast({
-      title: "Success",
-      description: "Payment record added successfully"
-    });
+    try {
+      setIsLoading(true);
+      
+      // Insert payment record
+      const { error: paymentError } = await supabase
+        .from('payments')
+        .insert({
+          customer_id: formData.customerId,
+          amount,
+          payment_date: formData.paymentDate,
+          payment_method: formData.paymentMethod || 'Cash'
+        });
 
-    setFormData({
-      customerId: '',
-      customerName: '',
-      amount: '',
-      paymentDate: new Date().toISOString().split('T')[0],
-      paymentMethod: '',
-      notes: ''
-    });
-    setIsAddDialogOpen(false);
+      if (paymentError) throw paymentError;
+
+      // Update customer balance
+      const newPendingAmount = Math.max(0, formData.pendingAmount - amount);
+      
+      const { error: balanceError } = await supabase
+        .from('customer_balances')
+        .update({
+          pending_amount: newPendingAmount,
+          updated_at: new Date().toISOString()
+        })
+        .eq('customer_id', formData.customerId);
+
+      if (balanceError) throw balanceError;
+
+      toast({
+        title: "Success",
+        description: "Payment recorded successfully"
+      });
+
+      // Reload data and reset form
+      await loadPayments();
+      await loadCustomersWithBalances();
+      
+      setFormData({
+        customerId: '',
+        customerName: '',
+        amount: '',
+        paymentDate: new Date().toISOString().split('T')[0],
+        paymentMethod: '',
+        isCustomAmount: false,
+        pendingAmount: 0
+      });
+      setIsAddDialogOpen(false);
+    } catch (error) {
+      console.error('Error recording payment:', error);
+      toast({
+        title: "Error",
+        description: "Failed to record payment",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleCustomerSelect = (customerId: string) => {
-    const customer = mockCustomers.find(c => c.id === customerId);
+    const customer = customers.find(c => c.id === customerId);
     setFormData({
       ...formData,
       customerId,
-      customerName: customer?.name || ''
+      customerName: customer?.name || '',
+      pendingAmount: customer?.pending_amount || 0,
+      amount: formData.isCustomAmount ? formData.amount : (customer?.pending_amount || 0).toString()
     });
   };
 
-  const markAsCleared = (paymentId: string) => {
-    setPayments(payments.map(payment =>
-      payment.id === paymentId
-        ? { ...payment, status: 'cleared' as const }
-        : payment
-    ));
-    toast({
-      title: "Success",
-      description: "Payment marked as cleared"
-    });
-  };
-
-  const markAsPending = (paymentId: string) => {
-    setPayments(payments.map(payment =>
-      payment.id === paymentId
-        ? { ...payment, status: 'pending' as const }
-        : payment
-    ));
-    toast({
-      title: "Success",
-      description: "Payment marked as pending"
+  const handleCustomAmountToggle = (isCustom: boolean) => {
+    setFormData({
+      ...formData,
+      isCustomAmount: isCustom,
+      amount: isCustom ? '' : formData.pendingAmount.toString()
     });
   };
 
@@ -142,14 +232,14 @@ export const PaymentTracking = () => {
         
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
           <DialogTrigger asChild>
-            <Button className="bg-green-600 hover:bg-green-700">
+            <Button className="bg-green-600 hover:bg-green-700" disabled={isLoading}>
               <Plus className="h-4 w-4 mr-2" />
-              Add Payment
+              Record Payment
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>Add Payment Record</DialogTitle>
+              <DialogTitle>Record Payment</DialogTitle>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
@@ -159,26 +249,56 @@ export const PaymentTracking = () => {
                     <SelectValue placeholder="Select customer" />
                   </SelectTrigger>
                   <SelectContent>
-                    {mockCustomers.map((customer) => (
+                    {customers.map((customer) => (
                       <SelectItem key={customer.id} value={customer.id}>
-                        {customer.name}
+                        {customer.name} - ₹{customer.pending_amount.toFixed(2)} pending
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
 
+              {formData.customerId && (
+                <div className="p-3 bg-blue-50 rounded-lg">
+                  <p className="text-sm font-medium text-blue-900">
+                    Pending Amount: ₹{formData.pendingAmount.toFixed(2)}
+                  </p>
+                </div>
+              )}
+
               <div>
-                <Label htmlFor="amount">Amount (₹) *</Label>
+                <div className="flex items-center gap-4 mb-2">
+                  <Label>Payment Amount *</Label>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant={!formData.isCustomAmount ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => handleCustomAmountToggle(false)}
+                      disabled={!formData.customerId}
+                    >
+                      Full Amount
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={formData.isCustomAmount ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => handleCustomAmountToggle(true)}
+                    >
+                      Custom
+                    </Button>
+                  </div>
+                </div>
                 <Input
-                  id="amount"
                   type="number"
                   step="0.01"
                   min="0"
+                  max={formData.isCustomAmount ? undefined : formData.pendingAmount}
                   value={formData.amount}
                   onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                  placeholder="e.g., 550.00"
+                  placeholder="Enter amount"
                   required
+                  disabled={!formData.customerId}
                 />
               </div>
 
@@ -208,24 +328,15 @@ export const PaymentTracking = () => {
                 </Select>
               </div>
 
-              <div>
-                <Label htmlFor="notes">Notes</Label>
-                <Input
-                  id="notes"
-                  value={formData.notes}
-                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                  placeholder="Optional notes"
-                />
-              </div>
-
               <div className="flex gap-2 pt-4">
-                <Button type="submit" className="flex-1 bg-green-600 hover:bg-green-700">
-                  Add Payment
+                <Button type="submit" className="flex-1 bg-green-600 hover:bg-green-700" disabled={isLoading}>
+                  {isLoading ? 'Recording...' : 'Record Payment'}
                 </Button>
                 <Button 
                   type="button" 
                   variant="outline" 
                   onClick={() => setIsAddDialogOpen(false)}
+                  disabled={isLoading}
                 >
                   Cancel
                 </Button>
@@ -244,8 +355,8 @@ export const PaymentTracking = () => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-500">Pending Payments</p>
-              <p className="text-2xl font-bold text-red-600">₹{totalPending.toFixed(2)}</p>
-              <p className="text-sm text-gray-500">{pendingPayments.length} customers</p>
+              <p className="text-2xl font-bold text-red-600">₹{totalPendingAmount.toFixed(2)}</p>
+              <p className="text-sm text-gray-500">{customersWithPendingBalance.length} customers</p>
             </div>
           </div>
         </Card>
@@ -256,9 +367,9 @@ export const PaymentTracking = () => {
               <Check className="h-6 w-6 text-green-600" />
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Cleared Payments</p>
-              <p className="text-2xl font-bold text-green-600">₹{totalCleared.toFixed(2)}</p>
-              <p className="text-sm text-gray-500">{payments.filter(p => p.status === 'cleared').length} payments</p>
+              <p className="text-sm font-medium text-gray-500">Total Payments</p>
+              <p className="text-2xl font-bold text-green-600">₹{totalPayments.toFixed(2)}</p>
+              <p className="text-sm text-gray-500">{payments.length} payments</p>
             </div>
           </div>
         </Card>
@@ -269,41 +380,27 @@ export const PaymentTracking = () => {
               <CreditCard className="h-6 w-6 text-blue-600" />
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Total Payments</p>
-              <p className="text-2xl font-bold text-blue-600">₹{(totalPending + totalCleared).toFixed(2)}</p>
-              <p className="text-sm text-gray-500">{payments.length} records</p>
+              <p className="text-sm font-medium text-gray-500">Total Revenue</p>
+              <p className="text-2xl font-bold text-blue-600">₹{(totalPayments + totalPendingAmount).toFixed(2)}</p>
+              <p className="text-sm text-gray-500">Collected + Pending</p>
             </div>
           </div>
         </Card>
       </div>
 
-      {/* Search and Filter */}
-      <div className="flex flex-col sm:flex-row gap-4">
-        <Card className="flex-1 p-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-            <Input
-              placeholder="Search by customer name or payment method..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
-            />
-          </div>
-        </Card>
-        
-        <Card className="p-4">
-          <Select value={statusFilter} onValueChange={(value: 'all' | 'pending' | 'cleared') => setStatusFilter(value)}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="Filter by status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Payments</SelectItem>
-              <SelectItem value="pending">Pending Only</SelectItem>
-              <SelectItem value="cleared">Cleared Only</SelectItem>
-            </SelectContent>
-          </Select>
-        </Card>
-      </div>
+      {/* Search */}
+      <Card className="p-4">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+          <Input
+            placeholder="Search by customer name or payment method..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-10"
+            disabled={isLoading}
+          />
+        </div>
+      </Card>
 
       {/* Payments Table */}
       <Card className="overflow-hidden">
@@ -323,72 +420,35 @@ export const PaymentTracking = () => {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Method
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Notes
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredPayments.length === 0 ? (
+              {isLoading ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
-                    No payment records found. Add your first payment record to get started.
+                  <td colSpan={4} className="px-6 py-8 text-center text-gray-500">
+                    Loading payments...
+                  </td>
+                </tr>
+              ) : filteredPayments.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-6 py-8 text-center text-gray-500">
+                    No payment records found. Record your first payment to get started.
                   </td>
                 </tr>
               ) : (
                 filteredPayments.map((payment) => (
                   <tr key={payment.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {payment.customerName}
+                      {payment.customer_name}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
                       ₹{payment.amount.toFixed(2)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {new Date(payment.paymentDate).toLocaleDateString()}
+                      {new Date(payment.payment_date).toLocaleDateString()}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {payment.paymentMethod}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <Badge 
-                        variant={payment.status === 'cleared' ? 'default' : 'destructive'}
-                        className={payment.status === 'cleared' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}
-                      >
-                        {payment.status === 'cleared' ? 'Cleared' : 'Pending'}
-                      </Badge>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-900 max-w-xs truncate">
-                      {payment.notes || '-'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      {payment.status === 'pending' ? (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => markAsCleared(payment.id)}
-                          className="text-green-600 hover:text-green-900"
-                        >
-                          <Check className="h-4 w-4 mr-1" />
-                          Clear
-                        </Button>
-                      ) : (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => markAsPending(payment.id)}
-                          className="text-yellow-600 hover:text-yellow-900"
-                        >
-                          <X className="h-4 w-4 mr-1" />
-                          Undo
-                        </Button>
-                      )}
+                      <Badge variant="outline">{payment.payment_method}</Badge>
                     </td>
                   </tr>
                 ))

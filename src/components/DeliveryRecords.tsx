@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,45 +13,123 @@ import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { BulkDeliveryEntry } from './BulkDeliveryEntry';
+import { supabase } from '@/integrations/supabase/client';
 
 interface DeliveryRecord {
   id: string;
-  customerId: string;
-  customerName: string;
-  milkType: string;
+  customer_id: string;
+  customer_name: string;
+  milk_type_name: string;
   quantity: number;
-  pricePerLiter: number;
-  totalAmount: number;
-  deliveryDate: string;
+  price_per_liter: number;
+  total_amount: number;
+  delivery_date: string;
   notes: string;
+}
+
+interface Customer {
+  id: string;
+  name: string;
+}
+
+interface MilkType {
+  id: string;
+  name: string;
+  price_per_liter: number;
 }
 
 export const DeliveryRecords = () => {
   const [deliveryRecords, setDeliveryRecords] = useState<DeliveryRecord[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [milkTypes, setMilkTypes] = useState<MilkType[]>([]);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [searchTerm, setSearchTerm] = useState('');
   const [isBulkMode, setIsBulkMode] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
     customerId: '',
     customerName: '',
-    milkType: '',
+    milkTypeId: '',
+    milkTypeName: '',
     quantity: '',
     pricePerLiter: '',
     deliveryDate: new Date(),
     notes: ''
   });
 
-  // Mock customers and milk types for demo
-  const mockCustomers = [
-    { id: '1', name: 'John Doe' },
-    { id: '2', name: 'Jane Smith' },
-  ];
+  useEffect(() => {
+    loadDeliveryRecords();
+    loadCustomers();
+    loadMilkTypes();
+  }, []);
 
-  const mockMilkTypes = [
-    { name: 'Full Cream', price: 55 },
-    { name: 'Skimmed', price: 50 },
-  ];
+  const loadDeliveryRecords = async () => {
+    try {
+      setIsLoading(true);
+      const { data, error } = await supabase
+        .from('delivery_records')
+        .select(`
+          *,
+          customers(name),
+          milk_types(name)
+        `)
+        .order('delivery_date', { ascending: false });
+
+      if (error) throw error;
+
+      const formattedRecords = data?.map(record => ({
+        id: record.id,
+        customer_id: record.customer_id,
+        customer_name: record.customers?.name || 'Unknown',
+        milk_type_name: record.milk_types?.name || 'Unknown',
+        quantity: record.quantity,
+        price_per_liter: record.price_per_liter,
+        total_amount: record.total_amount,
+        delivery_date: record.delivery_date,
+        notes: record.notes || ''
+      })) || [];
+
+      setDeliveryRecords(formattedRecords);
+    } catch (error) {
+      console.error('Error loading delivery records:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load delivery records",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const loadCustomers = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('customers')
+        .select('id, name')
+        .order('name');
+
+      if (error) throw error;
+      setCustomers(data || []);
+    } catch (error) {
+      console.error('Error loading customers:', error);
+    }
+  };
+
+  const loadMilkTypes = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('milk_types')
+        .select('id, name, price_per_liter')
+        .order('name');
+
+      if (error) throw error;
+      setMilkTypes(data || []);
+    } catch (error) {
+      console.error('Error loading milk types:', error);
+    }
+  };
 
   if (isBulkMode) {
     return (
@@ -84,19 +163,19 @@ export const DeliveryRecords = () => {
   }
 
   const filteredRecords = deliveryRecords.filter(record =>
-    record.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    record.milkType.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    record.deliveryDate.includes(searchTerm)
+    record.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    record.milk_type_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    record.delivery_date.includes(searchTerm)
   );
 
   const todaysRecords = deliveryRecords.filter(record => 
-    record.deliveryDate === new Date().toISOString().split('T')[0]
+    record.delivery_date === new Date().toISOString().split('T')[0]
   );
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!formData.customerId || !formData.milkType || !formData.quantity || !formData.pricePerLiter) {
+    if (!formData.customerId || !formData.milkTypeId || !formData.quantity || !formData.pricePerLiter) {
       toast({
         title: "Error",
         description: "Please fill in all required fields",
@@ -105,10 +184,10 @@ export const DeliveryRecords = () => {
       return;
     }
 
-    const quantity = parseFloat(formData.quantity);
+    const quantityInMl = parseFloat(formData.quantity);
     const price = parseFloat(formData.pricePerLiter);
 
-    if (isNaN(quantity) || quantity <= 0 || isNaN(price) || price <= 0) {
+    if (isNaN(quantityInMl) || quantityInMl <= 0 || isNaN(price) || price <= 0) {
       toast({
         title: "Error",
         description: "Please enter valid quantity and price",
@@ -117,38 +196,77 @@ export const DeliveryRecords = () => {
       return;
     }
 
-    const newRecord: DeliveryRecord = {
-      id: Date.now().toString(),
-      customerId: formData.customerId,
-      customerName: formData.customerName,
-      milkType: formData.milkType,
-      quantity,
-      pricePerLiter: price,
-      totalAmount: quantity * price,
-      deliveryDate: formData.deliveryDate.toISOString().split('T')[0],
-      notes: formData.notes
-    };
+    try {
+      setIsLoading(true);
+      // Convert ml to liters for storage and calculation
+      const quantityInLiters = quantityInMl / 1000;
+      const totalAmount = quantityInLiters * price;
 
-    setDeliveryRecords([...deliveryRecords, newRecord]);
-    toast({
-      title: "Success",
-      description: "Delivery record added successfully"
-    });
+      const { error } = await supabase
+        .from('delivery_records')
+        .insert({
+          customer_id: formData.customerId,
+          milk_type_id: formData.milkTypeId,
+          quantity: quantityInLiters,
+          price_per_liter: price,
+          total_amount: totalAmount,
+          delivery_date: formData.deliveryDate.toISOString().split('T')[0],
+          notes: formData.notes || null
+        });
 
-    setFormData({
-      customerId: '',
-      customerName: '',
-      milkType: '',
-      quantity: '',
-      pricePerLiter: '',
-      deliveryDate: new Date(),
-      notes: ''
-    });
-    setIsAddDialogOpen(false);
+      if (error) throw error;
+
+      // Update customer balance
+      const { data: existingBalance } = await supabase
+        .from('customer_balances')
+        .select('pending_amount')
+        .eq('customer_id', formData.customerId)
+        .maybeSingle();
+
+      const newPendingAmount = (existingBalance?.pending_amount || 0) + totalAmount;
+
+      await supabase
+        .from('customer_balances')
+        .upsert({
+          customer_id: formData.customerId,
+          pending_amount: newPendingAmount,
+          updated_at: new Date().toISOString()
+        }, {
+          onConflict: 'customer_id'
+        });
+
+      toast({
+        title: "Success",
+        description: "Delivery record added successfully"
+      });
+
+      // Reload records and reset form
+      await loadDeliveryRecords();
+      setFormData({
+        customerId: '',
+        customerName: '',
+        milkTypeId: '',
+        milkTypeName: '',
+        quantity: '',
+        pricePerLiter: '',
+        deliveryDate: new Date(),
+        notes: ''
+      });
+      setIsAddDialogOpen(false);
+    } catch (error) {
+      console.error('Error adding delivery record:', error);
+      toast({
+        title: "Error",
+        description: "Failed to add delivery record",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleCustomerSelect = (customerId: string) => {
-    const customer = mockCustomers.find(c => c.id === customerId);
+    const customer = customers.find(c => c.id === customerId);
     setFormData({
       ...formData,
       customerId,
@@ -156,12 +274,13 @@ export const DeliveryRecords = () => {
     });
   };
 
-  const handleMilkTypeSelect = (milkType: string) => {
-    const milk = mockMilkTypes.find(m => m.name === milkType);
+  const handleMilkTypeSelect = (milkTypeId: string) => {
+    const milkType = milkTypes.find(m => m.id === milkTypeId);
     setFormData({
       ...formData,
-      milkType,
-      pricePerLiter: milk?.price.toString() || ''
+      milkTypeId,
+      milkTypeName: milkType?.name || '',
+      pricePerLiter: milkType?.price_per_liter.toString() || ''
     });
   };
 
@@ -192,7 +311,7 @@ export const DeliveryRecords = () => {
         
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
           <DialogTrigger asChild>
-            <Button className="bg-blue-600 hover:bg-blue-700">
+            <Button className="bg-blue-600 hover:bg-blue-700" disabled={isLoading}>
               <Plus className="h-4 w-4 mr-2" />
               Add Delivery
             </Button>
@@ -209,7 +328,7 @@ export const DeliveryRecords = () => {
                     <SelectValue placeholder="Select customer" />
                   </SelectTrigger>
                   <SelectContent>
-                    {mockCustomers.map((customer) => (
+                    {customers.map((customer) => (
                       <SelectItem key={customer.id} value={customer.id}>
                         {customer.name}
                       </SelectItem>
@@ -225,9 +344,9 @@ export const DeliveryRecords = () => {
                     <SelectValue placeholder="Select milk type" />
                   </SelectTrigger>
                   <SelectContent>
-                    {mockMilkTypes.map((milk) => (
-                      <SelectItem key={milk.name} value={milk.name}>
-                        {milk.name} - ₹{milk.price}/L
+                    {milkTypes.map((milk) => (
+                      <SelectItem key={milk.id} value={milk.id}>
+                        {milk.name} - ₹{milk.price_per_liter}/L
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -235,15 +354,15 @@ export const DeliveryRecords = () => {
               </div>
 
               <div>
-                <Label htmlFor="quantity">Quantity (Liters) *</Label>
+                <Label htmlFor="quantity">Quantity (ml) *</Label>
                 <Input
                   id="quantity"
                   type="number"
-                  step="0.5"
+                  step="50"
                   min="0"
                   value={formData.quantity}
                   onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
-                  placeholder="e.g., 2.5"
+                  placeholder="e.g., 500"
                   required
                 />
               </div>
@@ -302,19 +421,23 @@ export const DeliveryRecords = () => {
               {formData.quantity && formData.pricePerLiter && (
                 <div className="p-3 bg-gray-50 rounded-lg">
                   <p className="text-sm font-medium">
-                    Total Amount: ₹{(parseFloat(formData.quantity) * parseFloat(formData.pricePerLiter)).toFixed(2)}
+                    Total Amount: ₹{((parseFloat(formData.quantity) / 1000) * parseFloat(formData.pricePerLiter)).toFixed(2)}
+                    <span className="text-xs text-gray-600 ml-2">
+                      ({formData.quantity}ml = {(parseFloat(formData.quantity) / 1000).toFixed(2)}L)
+                    </span>
                   </p>
                 </div>
               )}
 
               <div className="flex gap-2 pt-4">
-                <Button type="submit" className="flex-1 bg-blue-600 hover:bg-blue-700">
-                  Add Delivery
+                <Button type="submit" className="flex-1 bg-blue-600 hover:bg-blue-700" disabled={isLoading}>
+                  {isLoading ? 'Adding...' : 'Add Delivery'}
                 </Button>
                 <Button 
                   type="button" 
                   variant="outline" 
                   onClick={() => setIsAddDialogOpen(false)}
+                  disabled={isLoading}
                 >
                   Cancel
                 </Button>
@@ -334,13 +457,13 @@ export const DeliveryRecords = () => {
           </div>
           <div className="text-center">
             <p className="text-2xl font-bold text-green-600">
-              {todaysRecords.reduce((sum, record) => sum + record.quantity, 0).toFixed(1)}L
+              {(todaysRecords.reduce((sum, record) => sum + record.quantity, 0) * 1000).toFixed(0)}ml
             </p>
             <p className="text-sm text-gray-500">Total Quantity</p>
           </div>
           <div className="text-center">
             <p className="text-2xl font-bold text-yellow-600">
-              ₹{todaysRecords.reduce((sum, record) => sum + record.totalAmount, 0).toFixed(2)}
+              ₹{todaysRecords.reduce((sum, record) => sum + record.total_amount, 0).toFixed(2)}
             </p>
             <p className="text-sm text-gray-500">Total Amount</p>
           </div>
@@ -356,6 +479,7 @@ export const DeliveryRecords = () => {
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-10"
+            disabled={isLoading}
           />
         </div>
       </Card>
@@ -390,7 +514,13 @@ export const DeliveryRecords = () => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredRecords.length === 0 ? (
+              {isLoading ? (
+                <tr>
+                  <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
+                    Loading delivery records...
+                  </td>
+                </tr>
+              ) : filteredRecords.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
                     No delivery records found. Add your first delivery record to get started.
@@ -400,22 +530,22 @@ export const DeliveryRecords = () => {
                 filteredRecords.map((record) => (
                   <tr key={record.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {new Date(record.deliveryDate).toLocaleDateString()}
+                      {new Date(record.delivery_date).toLocaleDateString()}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {record.customerName}
+                      {record.customer_name}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {record.milkType}
+                      {record.milk_type_name}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {record.quantity}L
+                      {(record.quantity * 1000).toFixed(0)}ml
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      ₹{record.pricePerLiter.toFixed(2)}
+                      ₹{record.price_per_liter.toFixed(2)}/L
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
-                      ₹{record.totalAmount.toFixed(2)}
+                      ₹{record.total_amount.toFixed(2)}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900 max-w-xs truncate">
                       {record.notes || '-'}

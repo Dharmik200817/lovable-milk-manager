@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -138,7 +137,6 @@ export const BulkDeliveryEntry = () => {
 
   const loadCustomerMemory = async () => {
     try {
-      // Get last delivery for each customer to remember their preferences
       const { data, error } = await supabase
         .from('delivery_records')
         .select('customer_id, milk_type_id, quantity')
@@ -231,7 +229,9 @@ export const BulkDeliveryEntry = () => {
   };
 
   const calculateTotal = () => {
-    const milkTotal = currentEntry.quantity * currentEntry.pricePerLiter;
+    // Convert ml to liters for price calculation
+    const liters = currentEntry.quantity / 1000;
+    const milkTotal = liters * currentEntry.pricePerLiter;
     const groceryTotal = currentEntry.groceryItems.reduce((sum, item) => {
       return sum + (item.quantity * item.price);
     }, 0);
@@ -251,11 +251,13 @@ export const BulkDeliveryEntry = () => {
     setIsLoading(true);
     try {
       const totalAmount = calculateTotal();
+      // Convert ml to liters for storage
+      const quantityInLiters = currentEntry.quantity / 1000;
       
       console.log('Saving delivery record:', {
         customer_id: currentEntry.customerId,
         milk_type_id: currentEntry.milkTypeId,
-        quantity: currentEntry.quantity,
+        quantity: quantityInLiters,
         price_per_liter: currentEntry.pricePerLiter,
         total_amount: totalAmount,
         delivery_date: selectedDate.toISOString().split('T')[0]
@@ -267,7 +269,7 @@ export const BulkDeliveryEntry = () => {
         .insert({
           customer_id: currentEntry.customerId,
           milk_type_id: currentEntry.milkTypeId,
-          quantity: currentEntry.quantity,
+          quantity: quantityInLiters,
           price_per_liter: currentEntry.pricePerLiter,
           total_amount: totalAmount,
           delivery_date: selectedDate.toISOString().split('T')[0]
@@ -308,12 +310,12 @@ export const BulkDeliveryEntry = () => {
         }
       }
 
-      // Update customer balance
+      // Update customer balance using upsert to handle existing records
       const { data: existingBalance } = await supabase
         .from('customer_balances')
         .select('pending_amount')
         .eq('customer_id', currentEntry.customerId)
-        .single();
+        .maybeSingle();
 
       const newPendingAmount = (existingBalance?.pending_amount || 0) + totalAmount;
 
@@ -323,6 +325,8 @@ export const BulkDeliveryEntry = () => {
           customer_id: currentEntry.customerId,
           pending_amount: newPendingAmount,
           updated_at: new Date().toISOString()
+        }, {
+          onConflict: 'customer_id'
         });
 
       if (balanceError) {
@@ -332,7 +336,7 @@ export const BulkDeliveryEntry = () => {
 
       console.log('Customer balance updated');
 
-      // Update customer memory
+      // Update customer memory with ml quantity
       setCustomerMemory(prev => ({
         ...prev,
         [currentEntry.customerId]: {
@@ -482,14 +486,14 @@ export const BulkDeliveryEntry = () => {
           </div>
 
           <div>
-            <Label>Quantity (L) *</Label>
+            <Label>Quantity (ml) *</Label>
             <Input
               type="number"
-              step="0.5"
+              step="50"
               min="0"
               value={currentEntry.quantity || ''}
               onChange={(e) => updateEntry('quantity', e.target.value)}
-              placeholder="e.g., 2.5"
+              placeholder="e.g., 500"
             />
           </div>
 
@@ -590,6 +594,9 @@ export const BulkDeliveryEntry = () => {
           <div className="mt-4 p-3 bg-blue-50 rounded-lg">
             <p className="text-sm font-medium text-blue-900">
               Total Amount: ₹{calculateTotal().toFixed(2)}
+              <span className="text-xs text-gray-600 ml-2">
+                ({currentEntry.quantity}ml = {(currentEntry.quantity / 1000).toFixed(2)}L)
+              </span>
             </p>
           </div>
         )}
