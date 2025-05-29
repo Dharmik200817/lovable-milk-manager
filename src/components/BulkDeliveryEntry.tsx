@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Calendar as CalendarIcon, Plus, Trash2, Save, ArrowRight, SkipForward } from 'lucide-react';
+import { Calendar as CalendarIcon, Plus, Trash2, ArrowRight, SkipForward } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
@@ -45,11 +45,19 @@ interface BulkEntry {
   groceryItems: GroceryItem[];
 }
 
+interface CustomerMemory {
+  [customerId: string]: {
+    milkTypeId: string;
+    quantity: number;
+  };
+}
+
 export const BulkDeliveryEntry = () => {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [milkTypes, setMilkTypes] = useState<MilkType[]>([]);
   const [currentCustomerIndex, setCurrentCustomerIndex] = useState(0);
+  const [customerMemory, setCustomerMemory] = useState<CustomerMemory>({});
   const [currentEntry, setCurrentEntry] = useState<BulkEntry>({
     customerId: '',
     customerName: '',
@@ -64,22 +72,25 @@ export const BulkDeliveryEntry = () => {
   useEffect(() => {
     loadCustomers();
     loadMilkTypes();
+    loadCustomerMemory();
   }, []);
 
   useEffect(() => {
     if (customers.length > 0 && currentCustomerIndex < customers.length) {
       const customer = customers[currentCustomerIndex];
+      const memory = customerMemory[customer.id];
+      
       setCurrentEntry({
         customerId: customer.id,
         customerName: customer.name,
-        milkTypeId: '',
-        milkTypeName: '',
-        quantity: 0,
-        pricePerLiter: 0,
+        milkTypeId: memory?.milkTypeId || '',
+        milkTypeName: memory?.milkTypeId ? milkTypes.find(m => m.id === memory.milkTypeId)?.name || '' : '',
+        quantity: memory?.quantity || 0,
+        pricePerLiter: memory?.milkTypeId ? milkTypes.find(m => m.id === memory.milkTypeId)?.price_per_liter || 0 : 0,
         groceryItems: []
       });
     }
-  }, [currentCustomerIndex, customers]);
+  }, [currentCustomerIndex, customers, customerMemory, milkTypes]);
 
   const loadCustomers = async () => {
     try {
@@ -88,7 +99,10 @@ export const BulkDeliveryEntry = () => {
         .select('*')
         .order('name');
       
-      if (error) throw error;
+      if (error) {
+        console.error('Error loading customers:', error);
+        throw error;
+      }
       setCustomers(data || []);
     } catch (error) {
       console.error('Error loading customers:', error);
@@ -107,7 +121,10 @@ export const BulkDeliveryEntry = () => {
         .select('*')
         .order('name');
       
-      if (error) throw error;
+      if (error) {
+        console.error('Error loading milk types:', error);
+        throw error;
+      }
       setMilkTypes(data || []);
     } catch (error) {
       console.error('Error loading milk types:', error);
@@ -116,6 +133,32 @@ export const BulkDeliveryEntry = () => {
         description: "Failed to load milk types",
         variant: "destructive"
       });
+    }
+  };
+
+  const loadCustomerMemory = async () => {
+    try {
+      // Get last delivery for each customer to remember their preferences
+      const { data, error } = await supabase
+        .from('delivery_records')
+        .select('customer_id, milk_type_id, quantity')
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+
+      const memory: CustomerMemory = {};
+      data?.forEach(record => {
+        if (!memory[record.customer_id]) {
+          memory[record.customer_id] = {
+            milkTypeId: record.milk_type_id,
+            quantity: record.quantity
+          };
+        }
+      });
+      
+      setCustomerMemory(memory);
+    } catch (error) {
+      console.error('Error loading customer memory:', error);
     }
   };
 
@@ -129,9 +172,10 @@ export const BulkDeliveryEntry = () => {
         pricePerLiter: milk?.price_per_liter || 0
       });
     } else if (field === 'quantity') {
+      const numericValue = typeof value === 'string' ? parseFloat(value) || 0 : value;
       setCurrentEntry({ 
         ...currentEntry, 
-        quantity: typeof value === 'string' ? parseFloat(value) || 0 : value 
+        quantity: numericValue
       });
     } else {
       setCurrentEntry({ ...currentEntry, [field]: value });
@@ -156,14 +200,16 @@ export const BulkDeliveryEntry = () => {
   const updateGroceryItem = (itemIndex: number, field: keyof GroceryItem, value: string | number) => {
     const updatedItems = [...currentEntry.groceryItems];
     if (field === 'quantity') {
+      const numericValue = typeof value === 'string' ? parseFloat(value) || 0 : value;
       updatedItems[itemIndex] = {
         ...updatedItems[itemIndex],
-        quantity: typeof value === 'string' ? parseFloat(value) || 0 : value
+        quantity: numericValue
       };
     } else if (field === 'price') {
+      const numericValue = typeof value === 'string' ? parseFloat(value) || 0 : value;
       updatedItems[itemIndex] = {
         ...updatedItems[itemIndex],
-        price: typeof value === 'string' ? parseFloat(value) || 0 : value
+        price: numericValue
       };
     } else {
       updatedItems[itemIndex] = {
@@ -206,6 +252,15 @@ export const BulkDeliveryEntry = () => {
     try {
       const totalAmount = calculateTotal();
       
+      console.log('Saving delivery record:', {
+        customer_id: currentEntry.customerId,
+        milk_type_id: currentEntry.milkTypeId,
+        quantity: currentEntry.quantity,
+        price_per_liter: currentEntry.pricePerLiter,
+        total_amount: totalAmount,
+        delivery_date: selectedDate.toISOString().split('T')[0]
+      });
+      
       // Insert delivery record
       const { data: deliveryData, error: deliveryError } = await supabase
         .from('delivery_records')
@@ -220,7 +275,12 @@ export const BulkDeliveryEntry = () => {
         .select()
         .single();
 
-      if (deliveryError) throw deliveryError;
+      if (deliveryError) {
+        console.error('Delivery error:', deliveryError);
+        throw deliveryError;
+      }
+
+      console.log('Delivery record saved:', deliveryData);
 
       // Insert grocery items if any
       if (currentEntry.groceryItems.length > 0) {
@@ -232,7 +292,7 @@ export const BulkDeliveryEntry = () => {
             quantity: item.quantity,
             unit: item.unit,
             price: item.price,
-            description: item.description
+            description: item.description || ''
           }));
 
         if (groceryItemsToInsert.length > 0) {
@@ -240,30 +300,46 @@ export const BulkDeliveryEntry = () => {
             .from('grocery_items')
             .insert(groceryItemsToInsert);
 
-          if (groceryError) throw groceryError;
+          if (groceryError) {
+            console.error('Grocery error:', groceryError);
+            throw groceryError;
+          }
+          console.log('Grocery items saved');
         }
       }
 
       // Update customer balance
+      const { data: existingBalance } = await supabase
+        .from('customer_balances')
+        .select('pending_amount')
+        .eq('customer_id', currentEntry.customerId)
+        .single();
+
+      const newPendingAmount = (existingBalance?.pending_amount || 0) + totalAmount;
+
       const { error: balanceError } = await supabase
         .from('customer_balances')
         .upsert({
           customer_id: currentEntry.customerId,
-          pending_amount: totalAmount,
+          pending_amount: newPendingAmount,
           updated_at: new Date().toISOString()
-        }, {
-          onConflict: 'customer_id'
         });
 
       if (balanceError) {
-        // If balance record doesn't exist, create it
-        await supabase
-          .from('customer_balances')
-          .insert({
-            customer_id: currentEntry.customerId,
-            pending_amount: totalAmount
-          });
+        console.error('Balance error:', balanceError);
+        throw balanceError;
       }
+
+      console.log('Customer balance updated');
+
+      // Update customer memory
+      setCustomerMemory(prev => ({
+        ...prev,
+        [currentEntry.customerId]: {
+          milkTypeId: currentEntry.milkTypeId,
+          quantity: currentEntry.quantity
+        }
+      }));
 
       return true;
     } catch (error) {
@@ -391,7 +467,7 @@ export const BulkDeliveryEntry = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           <div>
             <Label>Milk Type *</Label>
-            <Select onValueChange={(value) => updateEntry('milkTypeId', value)}>
+            <Select value={currentEntry.milkTypeId} onValueChange={(value) => updateEntry('milkTypeId', value)}>
               <SelectTrigger>
                 <SelectValue placeholder="Select milk type" />
               </SelectTrigger>
@@ -453,7 +529,6 @@ export const BulkDeliveryEntry = () => {
                       value={item.name}
                       onChange={(e) => updateGroceryItem(itemIndex, 'name', e.target.value)}
                       placeholder="Item name"
-                      size="sm"
                     />
                   </div>
                   <div>
@@ -465,7 +540,6 @@ export const BulkDeliveryEntry = () => {
                       value={item.quantity || ''}
                       onChange={(e) => updateGroceryItem(itemIndex, 'quantity', e.target.value)}
                       placeholder="Qty"
-                      size="sm"
                     />
                   </div>
                   <div>
@@ -474,7 +548,6 @@ export const BulkDeliveryEntry = () => {
                       value={item.unit}
                       onChange={(e) => updateGroceryItem(itemIndex, 'unit', e.target.value)}
                       placeholder="kg, pcs, etc"
-                      size="sm"
                     />
                   </div>
                   <div>
@@ -486,7 +559,6 @@ export const BulkDeliveryEntry = () => {
                       value={item.price || ''}
                       onChange={(e) => updateGroceryItem(itemIndex, 'price', e.target.value)}
                       placeholder="Price"
-                      size="sm"
                     />
                   </div>
                   <div>
@@ -495,7 +567,6 @@ export const BulkDeliveryEntry = () => {
                       value={item.description}
                       onChange={(e) => updateGroceryItem(itemIndex, 'description', e.target.value)}
                       placeholder="Optional"
-                      size="sm"
                     />
                   </div>
                   <div className="flex items-end">
