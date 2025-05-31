@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -62,7 +63,10 @@ export const PaymentTracking = () => {
         `)
         .order('payment_date', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error loading payments:', error);
+        throw error;
+      }
 
       const formattedPayments = data?.map(payment => ({
         id: payment.id,
@@ -74,6 +78,7 @@ export const PaymentTracking = () => {
         created_at: payment.created_at
       })) || [];
 
+      console.log('Loaded payments:', formattedPayments);
       setPayments(formattedPayments);
     } catch (error) {
       console.error('Error loading payments:', error);
@@ -98,7 +103,10 @@ export const PaymentTracking = () => {
         `)
         .order('name');
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error loading customers:', error);
+        throw error;
+      }
 
       const customersWithBalances = data?.map(customer => ({
         id: customer.id,
@@ -106,6 +114,7 @@ export const PaymentTracking = () => {
         pending_amount: customer.customer_balances?.[0]?.pending_amount || 0
       })) || [];
 
+      console.log('Loaded customers with balances:', customersWithBalances);
       setCustomers(customersWithBalances);
     } catch (error) {
       console.error('Error loading customers:', error);
@@ -160,24 +169,41 @@ export const PaymentTracking = () => {
 
     try {
       setIsLoading(true);
+      console.log('Submitting payment:', {
+        customer_id: formData.customerId,
+        amount: Math.ceil(paymentAmount), // Store as whole rupees
+        payment_date: format(formData.paymentDate, 'yyyy-MM-dd'),
+        payment_method: formData.paymentMethod
+      });
 
-      // Add payment record - store amount in rupees
-      const { error: paymentError } = await supabase
+      // Add payment record - store amount in rupees as whole numbers
+      const { data: paymentData, error: paymentError } = await supabase
         .from('payments')
         .insert({
           customer_id: formData.customerId,
-          amount: Math.round(paymentAmount), // Store in rupees as whole number
+          amount: Math.ceil(paymentAmount), // Store in rupees as whole number
           payment_date: format(formData.paymentDate, 'yyyy-MM-dd'),
           payment_method: formData.paymentMethod
-        });
+        })
+        .select()
+        .single();
 
       if (paymentError) {
         console.error('Payment insert error:', paymentError);
         throw paymentError;
       }
 
+      console.log('Payment inserted successfully:', paymentData);
+
       // Update customer balance - subtract payment from pending amount
-      const newPendingAmount = Math.max(0, formData.maxPendingAmount - paymentAmount);
+      const newPendingAmount = Math.max(0, Math.ceil(formData.maxPendingAmount - paymentAmount));
+
+      console.log('Updating customer balance:', {
+        customer_id: formData.customerId,
+        old_pending: formData.maxPendingAmount,
+        payment: paymentAmount,
+        new_pending: newPendingAmount
+      });
 
       const { error: balanceError } = await supabase
         .from('customer_balances')
@@ -196,7 +222,7 @@ export const PaymentTracking = () => {
 
       toast({
         title: "Success",
-        description: `Payment of ₹${paymentAmount.toFixed(2)} recorded successfully`
+        description: `Payment of ₹${Math.ceil(paymentAmount)} recorded successfully`
       });
 
       // Reload data and reset form
@@ -227,6 +253,7 @@ export const PaymentTracking = () => {
 
   const handleCustomerSelect = (customerId: string) => {
     const customer = customers.find(c => c.id === customerId);
+    console.log('Customer selected:', customer);
     setFormData({
       ...formData,
       customerId,
@@ -263,7 +290,7 @@ export const PaymentTracking = () => {
                   <SelectContent>
                     {customers.filter(c => c.pending_amount > 0).map((customer) => (
                       <SelectItem key={customer.id} value={customer.id}>
-                        {customer.name} - ₹{customer.pending_amount.toFixed(2)} pending
+                        {customer.name} - ₹{Math.ceil(customer.pending_amount)} pending
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -274,7 +301,7 @@ export const PaymentTracking = () => {
                 <>
                   <div className="p-3 bg-blue-50 rounded-lg">
                     <p className="text-sm font-medium text-blue-900">
-                      Pending Amount: ₹{formData.maxPendingAmount.toFixed(2)}
+                      Pending Amount: ₹{Math.ceil(formData.maxPendingAmount)}
                     </p>
                   </div>
 
@@ -288,7 +315,7 @@ export const PaymentTracking = () => {
                         onChange={() => setUseCustomAmount(false)}
                         className="rounded"
                       />
-                      <Label htmlFor="fullPayment">Pay Full Amount (₹{formData.maxPendingAmount.toFixed(2)})</Label>
+                      <Label htmlFor="fullPayment">Pay Full Amount (₹{Math.ceil(formData.maxPendingAmount)})</Label>
                     </div>
                     
                     <div className="flex items-center space-x-2">
@@ -310,9 +337,9 @@ export const PaymentTracking = () => {
                       <Input
                         id="customAmount"
                         type="number"
-                        step="0.01"
-                        min="0.01"
-                        max={formData.maxPendingAmount}
+                        step="1"
+                        min="1"
+                        max={Math.ceil(formData.maxPendingAmount)}
                         value={formData.customAmount}
                         onChange={(e) => setFormData({ ...formData, customAmount: e.target.value })}
                         placeholder="Enter amount"
@@ -394,7 +421,7 @@ export const PaymentTracking = () => {
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-500">Today's Collections</p>
               <p className="text-2xl font-bold text-gray-900">
-                ₹{todaysPayments.reduce((sum, payment) => sum + payment.amount, 0).toFixed(2)}
+                ₹{Math.ceil(todaysPayments.reduce((sum, payment) => sum + payment.amount, 0))}
               </p>
             </div>
           </div>
@@ -405,7 +432,7 @@ export const PaymentTracking = () => {
             <DollarSign className="h-8 w-8 text-blue-600" />
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-500">Total Pending</p>
-              <p className="text-2xl font-bold text-gray-900">₹{totalPendingAmount.toFixed(2)}</p>
+              <p className="text-2xl font-bold text-gray-900">₹{Math.ceil(totalPendingAmount)}</p>
             </div>
           </div>
         </Card>
@@ -416,10 +443,9 @@ export const PaymentTracking = () => {
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-500">This Month</p>
               <p className="text-2xl font-bold text-gray-900">
-                ₹{payments
+                ₹{Math.ceil(payments
                   .filter(p => new Date(p.payment_date).getMonth() === new Date().getMonth())
-                  .reduce((sum, payment) => sum + payment.amount, 0)
-                  .toFixed(2)}
+                  .reduce((sum, payment) => sum + payment.amount, 0))}
               </p>
             </div>
           </div>
@@ -470,7 +496,7 @@ export const PaymentTracking = () => {
                         {customer.name}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-red-600">
-                        ₹{customer.pending_amount.toFixed(2)}
+                        ₹{Math.ceil(customer.pending_amount)}
                       </td>
                     </tr>
                   ))
@@ -537,7 +563,7 @@ export const PaymentTracking = () => {
                       {payment.customer_name}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
-                      ₹{payment.amount.toFixed(2)}
+                      ₹{Math.ceil(payment.amount)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {payment.payment_method}

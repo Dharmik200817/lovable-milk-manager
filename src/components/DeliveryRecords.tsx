@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -197,7 +198,17 @@ export const DeliveryRecords = () => {
     try {
       setIsLoading(true);
       const quantityInLiters = quantityInMl / 1000; // Convert ml to liters for database storage
-      const totalAmount = Math.ceil(quantityInLiters * price); // Store amount in rupees
+      const totalAmount = Math.ceil(quantityInLiters * price); // Store amount in rupees as whole numbers
+
+      console.log('Submitting delivery record:', {
+        customer_id: formData.customerId,
+        milk_type_id: formData.milkTypeId,
+        quantity: quantityInLiters,
+        price_per_liter: price,
+        total_amount: totalAmount,
+        delivery_date: format(formData.deliveryDate, 'yyyy-MM-dd'),
+        notes: formData.notes
+      });
 
       const { error: deliveryError } = await supabase
         .from('delivery_records')
@@ -206,7 +217,7 @@ export const DeliveryRecords = () => {
           milk_type_id: formData.milkTypeId,
           quantity: quantityInLiters, // Store in liters in database
           price_per_liter: price,
-          total_amount: totalAmount, // Store in rupees
+          total_amount: totalAmount, // Store in rupees as whole numbers
           delivery_date: format(formData.deliveryDate, 'yyyy-MM-dd'),
           notes: formData.notes || null
         });
@@ -216,14 +227,14 @@ export const DeliveryRecords = () => {
         throw deliveryError;
       }
 
-      // Update customer balance - add amount in rupees
+      // Update customer balance - add amount in rupees as whole numbers
       const { data: existingBalance } = await supabase
         .from('customer_balances')
         .select('pending_amount')
         .eq('customer_id', formData.customerId)
         .maybeSingle();
 
-      const newPendingAmount = (existingBalance?.pending_amount || 0) + totalAmount;
+      const newPendingAmount = Math.ceil((existingBalance?.pending_amount || 0) + totalAmount);
 
       const { error: balanceError } = await supabase
         .from('customer_balances')
@@ -290,8 +301,6 @@ export const DeliveryRecords = () => {
 
   return (
     <div className="space-y-6">
-      
-      
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <h2 className="text-3xl font-bold text-gray-900">Delivery Records</h2>
@@ -463,13 +472,13 @@ export const DeliveryRecords = () => {
           </div>
           <div className="text-center">
             <p className="text-2xl font-bold text-green-600">
-              {(todaysRecords.reduce((sum, record) => sum + record.quantity, 0) * 1000).toFixed(0)}ml
+              {Math.round(todaysRecords.reduce((sum, record) => sum + record.quantity, 0) * 1000)}ml
             </p>
             <p className="text-sm text-gray-500">Total Quantity</p>
           </div>
           <div className="text-center">
             <p className="text-2xl font-bold text-yellow-600">
-              ₹{todaysRecords.reduce((sum, record) => sum + record.total_amount, 0).toFixed(2)}
+              ₹{Math.ceil(todaysRecords.reduce((sum, record) => sum + record.total_amount, 0))}
             </p>
             <p className="text-sm text-gray-500">Total Amount</p>
           </div>
@@ -545,13 +554,13 @@ export const DeliveryRecords = () => {
                       {record.milk_type_name}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {(record.quantity * 1000).toFixed(0)}ml
+                      {Math.round(record.quantity * 1000)}ml
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      ₹{record.price_per_liter.toFixed(0)}/L
+                      ₹{Math.ceil(record.price_per_liter)}/L
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
-                      ₹{record.total_amount.toFixed(0)}
+                      ₹{Math.ceil(record.total_amount)}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900 max-w-xs truncate">
                       {record.notes || '-'}

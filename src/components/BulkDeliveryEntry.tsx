@@ -57,7 +57,6 @@ export const BulkDeliveryEntry = () => {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [milkTypes, setMilkTypes] = useState<MilkType[]>([]);
-  const [currentCustomerIndex, setCurrentCustomerIndex] = useState(0);
   const [customerMemory, setCustomerMemory] = useState<CustomerMemory>({});
   const [currentEntry, setCurrentEntry] = useState<BulkEntry>({
     customerId: '',
@@ -76,24 +75,6 @@ export const BulkDeliveryEntry = () => {
     loadMilkTypes();
     loadCustomerMemory();
   }, []);
-
-  useEffect(() => {
-    if (customers.length > 0 && currentCustomerIndex < customers.length) {
-      const customer = customers[currentCustomerIndex];
-      const memory = customerMemory[customer.id];
-      
-      setCurrentEntry({
-        customerId: customer.id,
-        customerName: customer.name,
-        milkTypeId: memory?.milkTypeId || '',
-        milkTypeName: memory?.milkTypeId ? milkTypes.find(m => m.id === memory.milkTypeId)?.name || '' : '',
-        quantity: memory?.quantity || 0,
-        pricePerLiter: memory?.milkTypeId ? Math.ceil(milkTypes.find(m => m.id === memory.milkTypeId)?.price_per_liter || 0) : 0,
-        groceryItems: [],
-        isGroceryOnly: false
-      });
-    }
-  }, [currentCustomerIndex, customers, customerMemory, milkTypes]);
 
   const loadCustomers = async () => {
     try {
@@ -165,7 +146,22 @@ export const BulkDeliveryEntry = () => {
   };
 
   const updateEntry = (field: keyof BulkEntry, value: string | number | boolean) => {
-    if (field === 'milkTypeId') {
+    console.log('updateEntry called with:', field, value, typeof value);
+    
+    if (field === 'customerId') {
+      const customer = customers.find(c => c.id === value);
+      const memory = customerMemory[value as string];
+      
+      setCurrentEntry({
+        ...currentEntry,
+        customerId: value as string,
+        customerName: customer?.name || '',
+        milkTypeId: memory?.milkTypeId || '',
+        milkTypeName: memory?.milkTypeId ? milkTypes.find(m => m.id === memory.milkTypeId)?.name || '' : '',
+        quantity: memory?.quantity || 0,
+        pricePerLiter: memory?.milkTypeId ? Math.ceil(milkTypes.find(m => m.id === memory.milkTypeId)?.price_per_liter || 0) : 0
+      });
+    } else if (field === 'milkTypeId') {
       const milk = milkTypes.find(m => m.id === value);
       const roundedPrice = Math.ceil(milk?.price_per_liter || 0);
       setCurrentEntry({
@@ -175,7 +171,9 @@ export const BulkDeliveryEntry = () => {
         pricePerLiter: roundedPrice
       });
     } else if (field === 'quantity') {
+      // Ensure quantity is always a number
       const numericValue = typeof value === 'string' ? parseFloat(value) || 0 : (typeof value === 'number' ? value : 0);
+      console.log('Setting quantity to:', numericValue);
       setCurrentEntry({ 
         ...currentEntry, 
         quantity: numericValue
@@ -298,7 +296,7 @@ export const BulkDeliveryEntry = () => {
           .insert({
             customer_id: currentEntry.customerId,
             milk_type_id: currentEntry.milkTypeId,
-            quantity: quantityInLiters, // Store in liters in database but work with ml in UI
+            quantity: quantityInLiters, // Store in liters in database
             price_per_liter: currentEntry.pricePerLiter,
             total_amount: totalAmount,
             delivery_date: format(selectedDate, 'yyyy-MM-dd')
@@ -339,7 +337,7 @@ export const BulkDeliveryEntry = () => {
         }
       }
 
-      // Update customer balance - store amount in rupees
+      // Update customer balance - store amount in rupees as whole numbers
       const totalAmount = calculateTotal();
       if (totalAmount > 0) {
         const { data: existingBalance } = await supabase
@@ -348,7 +346,7 @@ export const BulkDeliveryEntry = () => {
           .eq('customer_id', currentEntry.customerId)
           .maybeSingle();
 
-        const newPendingAmount = (existingBalance?.pending_amount || 0) + totalAmount;
+        const newPendingAmount = Math.ceil((existingBalance?.pending_amount || 0) + totalAmount);
 
         const { error: balanceError } = await supabase
           .from('customer_balances')
@@ -399,30 +397,31 @@ export const BulkDeliveryEntry = () => {
         description: `Entry saved for ${currentEntry.customerName}`,
       });
       
-      if (currentCustomerIndex < customers.length - 1) {
-        setCurrentCustomerIndex(currentCustomerIndex + 1);
-      } else {
-        toast({
-          title: "Complete",
-          description: "All customers processed!",
-        });
-      }
+      // Reset form for next entry
+      setCurrentEntry({
+        customerId: '',
+        customerName: '',
+        milkTypeId: '',
+        milkTypeName: '',
+        quantity: 0,
+        pricePerLiter: 0,
+        groceryItems: [],
+        isGroceryOnly: false
+      });
     }
   };
 
-  const handleSkip = () => {
-    if (currentCustomerIndex < customers.length - 1) {
-      setCurrentCustomerIndex(currentCustomerIndex + 1);
-      toast({
-        title: "Skipped",
-        description: `Skipped ${currentEntry.customerName}`,
-      });
-    } else {
-      toast({
-        title: "Complete",
-        description: "Reached end of customer list!",
-      });
-    }
+  const resetForm = () => {
+    setCurrentEntry({
+      customerId: '',
+      customerName: '',
+      milkTypeId: '',
+      milkTypeName: '',
+      quantity: 0,
+      pricePerLiter: 0,
+      groceryItems: [],
+      isGroceryOnly: false
+    });
   };
 
   if (customers.length === 0) {
@@ -433,15 +432,10 @@ export const BulkDeliveryEntry = () => {
     );
   }
 
-  const currentCustomer = customers[currentCustomerIndex];
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-3xl font-bold text-gray-900">Bulk Delivery Entry</h2>
-        <div className="text-sm text-gray-500">
-          Customer {currentCustomerIndex + 1} of {customers.length}
-        </div>
       </div>
 
       {/* Date Selection */}
@@ -474,20 +468,19 @@ export const BulkDeliveryEntry = () => {
         </div>
       </Card>
 
-      {/* Current Customer Entry */}
+      {/* Current Entry Form */}
       <Card className="p-6">
         <div className="flex items-center justify-between mb-6">
           <h3 className="text-xl font-semibold text-blue-600">
-            {currentCustomer?.name}
+            Entry Form
           </h3>
           <div className="flex gap-2">
             <Button
-              onClick={handleSkip}
+              onClick={resetForm}
               variant="outline"
               className="text-orange-600 hover:text-orange-700"
             >
-              <SkipForward className="h-4 w-4 mr-2" />
-              Skip
+              Reset Form
             </Button>
             <Button
               onClick={handleNext}
@@ -495,9 +488,26 @@ export const BulkDeliveryEntry = () => {
               disabled={isLoading}
             >
               <ArrowRight className="h-4 w-4 mr-2" />
-              {currentCustomerIndex === customers.length - 1 ? 'Finish' : 'Next'}
+              Save Entry
             </Button>
           </div>
+        </div>
+
+        {/* Customer Selection */}
+        <div className="mb-4">
+          <Label>Customer *</Label>
+          <Select value={currentEntry.customerId} onValueChange={(value) => updateEntry('customerId', value)}>
+            <SelectTrigger>
+              <SelectValue placeholder="Select customer" />
+            </SelectTrigger>
+            <SelectContent>
+              {customers.map((customer) => (
+                <SelectItem key={customer.id} value={customer.id}>
+                  {customer.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Grocery Only Toggle */}
@@ -606,7 +616,7 @@ export const BulkDeliveryEntry = () => {
                     <Label className="text-xs">Price (₹)</Label>
                     <Input
                       type="number"
-                      step="0.01"
+                      step="1"
                       min="0"
                       value={item.price || ''}
                       onChange={(e) => updateGroceryItem(itemIndex, 'price', e.target.value)}
