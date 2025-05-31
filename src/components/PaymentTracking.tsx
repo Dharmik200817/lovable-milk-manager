@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -162,20 +161,23 @@ export const PaymentTracking = () => {
     try {
       setIsLoading(true);
 
-      // Add payment record
+      // Add payment record - store amount in rupees
       const { error: paymentError } = await supabase
         .from('payments')
         .insert({
           customer_id: formData.customerId,
-          amount: paymentAmount,
+          amount: Math.round(paymentAmount), // Store in rupees as whole number
           payment_date: format(formData.paymentDate, 'yyyy-MM-dd'),
           payment_method: formData.paymentMethod
         });
 
-      if (paymentError) throw paymentError;
+      if (paymentError) {
+        console.error('Payment insert error:', paymentError);
+        throw paymentError;
+      }
 
-      // Update customer balance
-      const newPendingAmount = formData.maxPendingAmount - paymentAmount;
+      // Update customer balance - subtract payment from pending amount
+      const newPendingAmount = Math.max(0, formData.maxPendingAmount - paymentAmount);
 
       const { error: balanceError } = await supabase
         .from('customer_balances')
@@ -187,11 +189,14 @@ export const PaymentTracking = () => {
           onConflict: 'customer_id'
         });
 
-      if (balanceError) throw balanceError;
+      if (balanceError) {
+        console.error('Balance update error:', balanceError);
+        throw balanceError;
+      }
 
       toast({
         title: "Success",
-        description: "Payment recorded successfully"
+        description: `Payment of ₹${paymentAmount.toFixed(2)} recorded successfully`
       });
 
       // Reload data and reset form
@@ -209,10 +214,10 @@ export const PaymentTracking = () => {
       setUseCustomAmount(false);
       setIsAddDialogOpen(false);
     } catch (error) {
-      console.error('Error adding payment:', error);
+      console.error('Error recording payment:', error);
       toast({
         title: "Error",
-        description: "Failed to record payment",
+        description: "Failed to record payment. Please try again.",
         variant: "destructive"
       });
     } finally {

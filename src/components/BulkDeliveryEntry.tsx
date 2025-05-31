@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -174,7 +175,7 @@ export const BulkDeliveryEntry = () => {
         pricePerLiter: roundedPrice
       });
     } else if (field === 'quantity') {
-      const numericValue = typeof value === 'string' ? parseFloat(value) || 0 : value;
+      const numericValue = typeof value === 'string' ? parseFloat(value) || 0 : (typeof value === 'number' ? value : 0);
       setCurrentEntry({ 
         ...currentEntry, 
         quantity: numericValue
@@ -244,7 +245,7 @@ export const BulkDeliveryEntry = () => {
   const calculateTotal = () => {
     let milkTotal = 0;
     if (!currentEntry.isGroceryOnly && currentEntry.quantity && currentEntry.pricePerLiter) {
-      const liters = currentEntry.quantity / 1000;
+      const liters = currentEntry.quantity / 1000; // Convert ml to liters for calculation
       milkTotal = liters * currentEntry.pricePerLiter;
     }
     
@@ -290,14 +291,14 @@ export const BulkDeliveryEntry = () => {
       // Save delivery record only if not grocery-only or if there's milk
       if (!currentEntry.isGroceryOnly && currentEntry.quantity > 0) {
         const totalAmount = calculateTotal();
-        const quantityInLiters = currentEntry.quantity / 1000;
+        const quantityInLiters = currentEntry.quantity / 1000; // Convert ml to liters for storage
         
         const { data: deliveryData, error: deliveryError } = await supabase
           .from('delivery_records')
           .insert({
             customer_id: currentEntry.customerId,
             milk_type_id: currentEntry.milkTypeId,
-            quantity: quantityInLiters,
+            quantity: quantityInLiters, // Store in liters in database but work with ml in UI
             price_per_liter: currentEntry.pricePerLiter,
             total_amount: totalAmount,
             delivery_date: format(selectedDate, 'yyyy-MM-dd')
@@ -338,7 +339,7 @@ export const BulkDeliveryEntry = () => {
         }
       }
 
-      // Update customer balance
+      // Update customer balance - store amount in rupees
       const totalAmount = calculateTotal();
       if (totalAmount > 0) {
         const { data: existingBalance } = await supabase
@@ -365,13 +366,13 @@ export const BulkDeliveryEntry = () => {
         }
       }
 
-      // Update customer memory
+      // Update customer memory - store quantity in ml
       if (!currentEntry.isGroceryOnly && currentEntry.milkTypeId && currentEntry.quantity > 0) {
         setCustomerMemory(prev => ({
           ...prev,
           [currentEntry.customerId]: {
             milkTypeId: currentEntry.milkTypeId,
-            quantity: currentEntry.quantity
+            quantity: currentEntry.quantity // Store in ml
           }
         }));
       }

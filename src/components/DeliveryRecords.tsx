@@ -196,24 +196,27 @@ export const DeliveryRecords = () => {
 
     try {
       setIsLoading(true);
-      const quantityInLiters = quantityInMl / 1000;
-      const totalAmount = Math.ceil(quantityInLiters * price);
+      const quantityInLiters = quantityInMl / 1000; // Convert ml to liters for database storage
+      const totalAmount = Math.ceil(quantityInLiters * price); // Store amount in rupees
 
-      const { error } = await supabase
+      const { error: deliveryError } = await supabase
         .from('delivery_records')
         .insert({
           customer_id: formData.customerId,
           milk_type_id: formData.milkTypeId,
-          quantity: quantityInLiters,
+          quantity: quantityInLiters, // Store in liters in database
           price_per_liter: price,
-          total_amount: totalAmount,
+          total_amount: totalAmount, // Store in rupees
           delivery_date: format(formData.deliveryDate, 'yyyy-MM-dd'),
           notes: formData.notes || null
         });
 
-      if (error) throw error;
+      if (deliveryError) {
+        console.error('Delivery record error:', deliveryError);
+        throw deliveryError;
+      }
 
-      // Update customer balance
+      // Update customer balance - add amount in rupees
       const { data: existingBalance } = await supabase
         .from('customer_balances')
         .select('pending_amount')
@@ -222,7 +225,7 @@ export const DeliveryRecords = () => {
 
       const newPendingAmount = (existingBalance?.pending_amount || 0) + totalAmount;
 
-      await supabase
+      const { error: balanceError } = await supabase
         .from('customer_balances')
         .upsert({
           customer_id: formData.customerId,
@@ -231,6 +234,11 @@ export const DeliveryRecords = () => {
         }, {
           onConflict: 'customer_id'
         });
+
+      if (balanceError) {
+        console.error('Balance update error:', balanceError);
+        throw balanceError;
+      }
 
       toast({
         title: "Success",
@@ -253,7 +261,7 @@ export const DeliveryRecords = () => {
       console.error('Error adding delivery record:', error);
       toast({
         title: "Error",
-        description: "Failed to add delivery record",
+        description: "Failed to add delivery record. Please try again.",
         variant: "destructive"
       });
     } finally {
