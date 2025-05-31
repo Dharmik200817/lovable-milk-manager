@@ -55,6 +55,8 @@ export const PaymentTracking = () => {
   const loadPayments = async () => {
     try {
       setIsLoading(true);
+      console.log('Loading payments...');
+      
       const { data, error } = await supabase
         .from('payments')
         .select(`
@@ -94,6 +96,8 @@ export const PaymentTracking = () => {
 
   const loadCustomersWithBalances = async () => {
     try {
+      console.log('Loading customers with balances...');
+      
       const { data, error } = await supabase
         .from('customers')
         .select(`
@@ -169,19 +173,21 @@ export const PaymentTracking = () => {
 
     try {
       setIsLoading(true);
+      const roundedAmount = Math.ceil(paymentAmount);
+      
       console.log('Submitting payment:', {
         customer_id: formData.customerId,
-        amount: Math.ceil(paymentAmount), // Store as whole rupees
+        amount: roundedAmount,
         payment_date: format(formData.paymentDate, 'yyyy-MM-dd'),
         payment_method: formData.paymentMethod
       });
 
-      // Add payment record - store amount in rupees as whole numbers
+      // Insert payment record
       const { data: paymentData, error: paymentError } = await supabase
         .from('payments')
         .insert({
           customer_id: formData.customerId,
-          amount: Math.ceil(paymentAmount), // Store in rupees as whole number
+          amount: roundedAmount,
           payment_date: format(formData.paymentDate, 'yyyy-MM-dd'),
           payment_method: formData.paymentMethod
         })
@@ -195,7 +201,7 @@ export const PaymentTracking = () => {
 
       console.log('Payment inserted successfully:', paymentData);
 
-      // Update customer balance - subtract payment from pending amount
+      // Update customer balance
       const newPendingAmount = Math.max(0, Math.ceil(formData.maxPendingAmount - paymentAmount));
 
       console.log('Updating customer balance:', {
@@ -222,7 +228,7 @@ export const PaymentTracking = () => {
 
       toast({
         title: "Success",
-        description: `Payment of ₹${Math.ceil(paymentAmount)} recorded successfully`
+        description: `Payment of ₹${roundedAmount} recorded successfully`
       });
 
       // Reload data and reset form
