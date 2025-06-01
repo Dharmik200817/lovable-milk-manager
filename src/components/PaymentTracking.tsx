@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -37,6 +36,8 @@ export const PaymentTracking = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [useCustomAmount, setUseCustomAmount] = useState(false);
+  const [bulkMode, setBulkMode] = useState(false);
+  const [currentCustomerIndex, setCurrentCustomerIndex] = useState(0);
   const [formData, setFormData] = useState({
     customerId: '',
     customerName: '',
@@ -231,20 +232,33 @@ export const PaymentTracking = () => {
         description: `Payment of ₹${roundedAmount} recorded successfully`
       });
 
-      // Reload data and reset form
+      // Handle bulk mode auto-selection
+      if (bulkMode) {
+        const customersWithPending = customers.filter(c => c.pending_amount > 0);
+        const nextIndex = (currentCustomerIndex + 1) % customersWithPending.length;
+        setCurrentCustomerIndex(nextIndex);
+        
+        if (customersWithPending[nextIndex]) {
+          handleCustomerSelect(customersWithPending[nextIndex].id);
+        }
+      } else {
+        // Reset form for normal mode
+        setFormData({
+          customerId: '',
+          customerName: '',
+          amount: '',
+          customAmount: '',
+          paymentDate: new Date(),
+          paymentMethod: 'Cash',
+          maxPendingAmount: 0
+        });
+        setUseCustomAmount(false);
+        setIsAddDialogOpen(false);
+      }
+
+      // Reload data
       await loadPayments();
       await loadCustomersWithBalances();
-      setFormData({
-        customerId: '',
-        customerName: '',
-        amount: '',
-        customAmount: '',
-        paymentDate: new Date(),
-        paymentMethod: 'Cash',
-        maxPendingAmount: 0
-      });
-      setUseCustomAmount(false);
-      setIsAddDialogOpen(false);
     } catch (error) {
       console.error('Error recording payment:', error);
       toast({
@@ -270,156 +284,198 @@ export const PaymentTracking = () => {
     setUseCustomAmount(false);
   };
 
+  const toggleBulkMode = () => {
+    setBulkMode(!bulkMode);
+    setCurrentCustomerIndex(0);
+    
+    if (!bulkMode) {
+      // Auto-select first customer with pending amount when entering bulk mode
+      const customersWithPending = customers.filter(c => c.pending_amount > 0);
+      if (customersWithPending.length > 0) {
+        handleCustomerSelect(customersWithPending[0].id);
+      }
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-3xl font-bold text-gray-900">Payment Tracking</h2>
         
-        <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="bg-green-600 hover:bg-green-700" disabled={isLoading}>
-              <Plus className="h-4 w-4 mr-2" />
-              Record Payment
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>Record Payment</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <Label htmlFor="customer">Customer *</Label>
-                <Select onValueChange={handleCustomerSelect} required>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select customer" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {customers.filter(c => c.pending_amount > 0).map((customer) => (
-                      <SelectItem key={customer.id} value={customer.id}>
-                        {customer.name} - ₹{Math.ceil(customer.pending_amount)} pending
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {formData.customerId && (
-                <>
+        <div className="flex gap-2">
+          <Button 
+            variant={bulkMode ? "default" : "outline"}
+            onClick={toggleBulkMode}
+            disabled={isLoading}
+          >
+            {bulkMode ? "Exit Bulk Mode" : "Bulk Mode"}
+          </Button>
+          
+          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+            <DialogTrigger asChild>
+              <Button className="bg-green-600 hover:bg-green-700" disabled={isLoading}>
+                <Plus className="h-4 w-4 mr-2" />
+                Record Payment
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>
+                  {bulkMode ? "Bulk Payment Recording" : "Record Payment"}
+                </DialogTitle>
+              </DialogHeader>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                {bulkMode && (
                   <div className="p-3 bg-blue-50 rounded-lg">
                     <p className="text-sm font-medium text-blue-900">
-                      Pending Amount: ₹{Math.ceil(formData.maxPendingAmount)}
+                      Bulk Mode: Auto-selecting next customer after each payment
                     </p>
                   </div>
+                )}
 
-                  <div className="space-y-3">
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="radio"
-                        id="fullPayment"
-                        name="paymentType"
-                        checked={!useCustomAmount}
-                        onChange={() => setUseCustomAmount(false)}
-                        className="rounded"
-                      />
-                      <Label htmlFor="fullPayment">Pay Full Amount (₹{Math.ceil(formData.maxPendingAmount)})</Label>
-                    </div>
-                    
-                    <div className="flex items-center space-x-2">
-                      <input
-                        type="radio"
-                        id="customPayment"
-                        name="paymentType"
-                        checked={useCustomAmount}
-                        onChange={() => setUseCustomAmount(true)}
-                        className="rounded"
-                      />
-                      <Label htmlFor="customPayment">Pay Custom Amount</Label>
-                    </div>
-                  </div>
-
-                  {useCustomAmount && (
-                    <div>
-                      <Label htmlFor="customAmount">Custom Amount (₹) *</Label>
-                      <Input
-                        id="customAmount"
-                        type="number"
-                        step="1"
-                        min="1"
-                        max={Math.ceil(formData.maxPendingAmount)}
-                        value={formData.customAmount}
-                        onChange={(e) => setFormData({ ...formData, customAmount: e.target.value })}
-                        placeholder="Enter amount"
-                        required
-                      />
-                    </div>
+                <div>
+                  <Label htmlFor="customer">Customer *</Label>
+                  <Select 
+                    value={formData.customerId} 
+                    onValueChange={handleCustomerSelect} 
+                    required
+                    disabled={bulkMode}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select customer" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {customers.filter(c => c.pending_amount > 0).map((customer) => (
+                        <SelectItem key={customer.id} value={customer.id}>
+                          {customer.name} - ₹{Math.ceil(customer.pending_amount)} pending
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {bulkMode && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      Customer selection is automatic in bulk mode
+                    </p>
                   )}
-                </>
-              )}
+                </div>
 
-              <div>
-                <Label htmlFor="paymentMethod">Payment Method *</Label>
-                <Select 
-                  value={formData.paymentMethod} 
-                  onValueChange={(value) => setFormData({ ...formData, paymentMethod: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Cash">Cash</SelectItem>
-                    <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
-                    <SelectItem value="UPI">UPI</SelectItem>
-                    <SelectItem value="Cheque">Cheque</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+                {formData.customerId && (
+                  <>
+                    <div className="p-3 bg-blue-50 rounded-lg">
+                      <p className="text-sm font-medium text-blue-900">
+                        Pending Amount: ₹{Math.ceil(formData.maxPendingAmount)}
+                      </p>
+                    </div>
 
-              <div>
-                <Label>Payment Date *</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className={cn(
-                        "w-full justify-start text-left font-normal",
-                        !formData.paymentDate && "text-muted-foreground"
-                      )}
-                    >
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {formData.paymentDate ? format(formData.paymentDate, "dd/MM/yyyy") : <span>Pick a date</span>}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={formData.paymentDate}
-                      onSelect={(date) => date && setFormData({ ...formData, paymentDate: date })}
-                      initialFocus
-                      className="p-3 pointer-events-auto"
-                    />
-                  </PopoverContent>
-                </Popover>
-              </div>
+                    <div className="space-y-3">
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="radio"
+                          id="fullPayment"
+                          name="paymentType"
+                          checked={!useCustomAmount}
+                          onChange={() => setUseCustomAmount(false)}
+                          className="rounded"
+                        />
+                        <Label htmlFor="fullPayment">Pay Full Amount (₹{Math.ceil(formData.maxPendingAmount)})</Label>
+                      </div>
+                      
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="radio"
+                          id="customPayment"
+                          name="paymentType"
+                          checked={useCustomAmount}
+                          onChange={() => setUseCustomAmount(true)}
+                          className="rounded"
+                        />
+                        <Label htmlFor="customPayment">Pay Custom Amount</Label>
+                      </div>
+                    </div>
 
-              <div className="flex gap-2 pt-4">
-                <Button type="submit" className="flex-1 bg-green-600 hover:bg-green-700" disabled={isLoading}>
-                  {isLoading ? 'Recording...' : 'Record Payment'}
-                </Button>
-                <Button 
-                  type="button" 
-                  variant="outline" 
-                  onClick={() => setIsAddDialogOpen(false)}
-                  disabled={isLoading}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog>
+                    {useCustomAmount && (
+                      <div>
+                        <Label htmlFor="customAmount">Custom Amount (₹) *</Label>
+                        <Input
+                          id="customAmount"
+                          type="number"
+                          step="1"
+                          min="1"
+                          max={Math.ceil(formData.maxPendingAmount)}
+                          value={formData.customAmount}
+                          onChange={(e) => setFormData({ ...formData, customAmount: e.target.value })}
+                          placeholder="Enter amount"
+                          required
+                        />
+                      </div>
+                    )}
+                  </>
+                )}
+
+                <div>
+                  <Label htmlFor="paymentMethod">Payment Method *</Label>
+                  <Select 
+                    value={formData.paymentMethod} 
+                    onValueChange={(value) => setFormData({ ...formData, paymentMethod: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Cash">Cash</SelectItem>
+                      <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
+                      <SelectItem value="UPI">UPI</SelectItem>
+                      <SelectItem value="Cheque">Cheque</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label>Payment Date *</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className={cn(
+                          "w-full justify-start text-left font-normal",
+                          !formData.paymentDate && "text-muted-foreground"
+                        )}
+                      >
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {formData.paymentDate ? format(formData.paymentDate, "dd/MM/yyyy") : <span>Pick a date</span>}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={formData.paymentDate}
+                        onSelect={(date) => date && setFormData({ ...formData, paymentDate: date })}
+                        initialFocus
+                        className="p-3 pointer-events-auto"
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+
+                <div className="flex gap-2 pt-4">
+                  <Button type="submit" className="flex-1 bg-green-600 hover:bg-green-700" disabled={isLoading}>
+                    {isLoading ? 'Recording...' : (bulkMode ? 'Record & Next' : 'Record Payment')}
+                  </Button>
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    onClick={() => setIsAddDialogOpen(false)}
+                    disabled={isLoading}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
-      {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <Card className="p-6">
           <div className="flex items-center">
@@ -470,7 +526,6 @@ export const PaymentTracking = () => {
         </Card>
       </div>
 
-      {/* Outstanding Balances */}
       <Card className="p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Outstanding Balances</h3>
         <div className="overflow-x-auto">
@@ -512,7 +567,6 @@ export const PaymentTracking = () => {
         </div>
       </Card>
 
-      {/* Search */}
       <Card className="p-4">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
@@ -526,7 +580,6 @@ export const PaymentTracking = () => {
         </div>
       </Card>
 
-      {/* Payments Table */}
       <Card className="overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">

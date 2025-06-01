@@ -33,6 +33,13 @@ export type Database = {
             foreignKeyName: "customer_balances_customer_id_fkey"
             columns: ["customer_id"]
             isOneToOne: true
+            referencedRelation: "customer_balances_view"
+            referencedColumns: ["customer_id"]
+          },
+          {
+            foreignKeyName: "customer_balances_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: true
             referencedRelation: "customers"
             referencedColumns: ["id"]
           },
@@ -94,6 +101,13 @@ export type Database = {
           total_amount?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "delivery_records_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customer_balances_view"
+            referencedColumns: ["customer_id"]
+          },
           {
             foreignKeyName: "delivery_records_customer_id_fkey"
             columns: ["customer_id"]
@@ -179,7 +193,7 @@ export type Database = {
         Row: {
           amount: number
           created_at: string
-          customer_id: string
+          customer_name: string
           id: string
           payment_date: string
           payment_method: string
@@ -187,7 +201,7 @@ export type Database = {
         Insert: {
           amount: number
           created_at?: string
-          customer_id: string
+          customer_name: string
           id?: string
           payment_date: string
           payment_method?: string
@@ -195,24 +209,38 @@ export type Database = {
         Update: {
           amount?: number
           created_at?: string
-          customer_id?: string
+          customer_name?: string
           id?: string
           payment_date?: string
           payment_method?: string
         }
         Relationships: [
           {
-            foreignKeyName: "payments_customer_id_fkey"
-            columns: ["customer_id"]
+            foreignKeyName: "payments_customer_name_fkey"
+            columns: ["customer_name"]
+            isOneToOne: false
+            referencedRelation: "customer_balances_view"
+            referencedColumns: ["customer_name"]
+          },
+          {
+            foreignKeyName: "payments_customer_name_fkey"
+            columns: ["customer_name"]
             isOneToOne: false
             referencedRelation: "customers"
-            referencedColumns: ["id"]
+            referencedColumns: ["name"]
           },
         ]
       }
     }
     Views: {
-      [_ in never]: never
+      customer_balances_view: {
+        Row: {
+          customer_id: string | null
+          customer_name: string | null
+          pending_amount: number | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       [_ in never]: never
