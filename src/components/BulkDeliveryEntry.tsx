@@ -50,15 +50,30 @@ interface CustomerMemory {
   };
 }
 
-type SelectionMode = 'manual' | 'primary' | 'secondary';
+interface CustomerBill {
+  date: string;
+  milkType: string;
+  quantity: number;
+  milkTotal: number;
+  groceryItems: { name: string; price: number }[];
+  totalAmount: number;
+}
+
+interface CustomerBills {
+  [customerId: string]: {
+    customerName: string;
+    bills: CustomerBill[];
+  };
+}
 
 export const BulkDeliveryEntry = () => {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [milkTypes, setMilkTypes] = useState<MilkType[]>([]);
   const [customerMemory, setCustomerMemory] = useState<CustomerMemory>({});
-  const [selectionMode, setSelectionMode] = useState<SelectionMode>('manual');
   const [currentCustomerIndex, setCurrentCustomerIndex] = useState(0);
+  const [customerBills, setCustomerBills] = useState<CustomerBills>({});
+  const [selectedCustomerForBill, setSelectedCustomerForBill] = useState<string>('');
   const [currentEntry, setCurrentEntry] = useState<BulkEntry>({
     customerId: '',
     customerName: '',
@@ -75,17 +90,18 @@ export const BulkDeliveryEntry = () => {
     loadCustomers();
     loadMilkTypes();
     loadCustomerMemory();
+    loadCustomerBills();
   }, []);
 
   useEffect(() => {
-    // Auto-select customer when in bulk mode
-    if ((selectionMode === 'primary' || selectionMode === 'secondary') && customers.length > 0) {
+    // Auto-select customer in secondary mode
+    if (customers.length > 0) {
       const customer = customers[currentCustomerIndex];
       if (customer) {
         updateEntry('customerId', customer.id);
       }
     }
-  }, [selectionMode, currentCustomerIndex, customers]);
+  }, [currentCustomerIndex, customers]);
 
   const loadCustomers = async () => {
     try {
@@ -153,6 +169,68 @@ export const BulkDeliveryEntry = () => {
       setCustomerMemory(memory);
     } catch (error) {
       console.error('Error loading customer memory:', error);
+    }
+  };
+
+  const loadCustomerBills = async () => {
+    try {
+      const { data: deliveryData, error: deliveryError } = await supabase
+        .from('delivery_records')
+        .select(`
+          *,
+          customers(name),
+          milk_types(name)
+        `)
+        .order('delivery_date', { ascending: false });
+
+      if (deliveryError) throw deliveryError;
+
+      const { data: groceryData, error: groceryError } = await supabase
+        .from('grocery_items')
+        .select('*');
+
+      if (groceryError) throw groceryError;
+
+      const bills: CustomerBills = {};
+
+      deliveryData?.forEach(record => {
+        const customerId = record.customer_id;
+        const customerName = record.customers?.name || 'Unknown';
+        const date = record.delivery_date;
+
+        if (!bills[customerId]) {
+          bills[customerId] = {
+            customerName,
+            bills: []
+          };
+        }
+
+        // Get grocery items for this delivery
+        const relatedGroceryItems = groceryData?.filter(
+          item => item.delivery_record_id === record.id
+        ) || [];
+
+        const groceryItems = relatedGroceryItems.map(item => ({
+          name: item.name,
+          price: item.price
+        }));
+
+        const groceryTotal = groceryItems.reduce((sum, item) => sum + item.price, 0);
+        const milkTotal = record.total_amount - groceryTotal;
+
+        bills[customerId].bills.push({
+          date,
+          milkType: record.milk_types?.name || 'Unknown',
+          quantity: Math.round(record.quantity * 1000),
+          milkTotal,
+          groceryItems,
+          totalAmount: record.total_amount
+        });
+      });
+
+      setCustomerBills(bills);
+    } catch (error) {
+      console.error('Error loading customer bills:', error);
     }
   };
 
@@ -394,26 +472,24 @@ export const BulkDeliveryEntry = () => {
         description: `Entry saved for ${currentEntry.customerName}`,
       });
       
-      if (selectionMode === 'primary' || selectionMode === 'secondary') {
-        // Move to next customer in bulk mode
-        const nextIndex = (currentCustomerIndex + 1) % customers.length;
-        setCurrentCustomerIndex(nextIndex);
-        
-        // Reset form for next entry
-        setCurrentEntry({
-          customerId: '',
-          customerName: '',
-          milkTypeId: '',
-          milkTypeName: '',
-          quantity: 0,
-          pricePerLiter: 0,
-          groceryItems: [],
-          isGroceryOnly: false
-        });
-      } else {
-        // Manual mode - just reset form
-        resetForm();
-      }
+      // Move to next customer and cycle back to first after last
+      const nextIndex = (currentCustomerIndex + 1) % customers.length;
+      setCurrentCustomerIndex(nextIndex);
+      
+      // Reset form for next entry
+      setCurrentEntry({
+        customerId: '',
+        customerName: '',
+        milkTypeId: '',
+        milkTypeName: '',
+        quantity: 0,
+        pricePerLiter: 0,
+        groceryItems: [],
+        isGroceryOnly: false
+      });
+
+      // Reload customer bills to show updated data
+      loadCustomerBills();
     }
   };
 
@@ -474,47 +550,10 @@ export const BulkDeliveryEntry = () => {
         </div>
       </Card>
 
-      {/* Selection Mode */}
+      {/* Current Customer Display */}
       <Card className="p-4">
-        <div className="space-y-4">
-          <Label>Entry Mode:</Label>
-          <div className="flex gap-4">
-            <label className="flex items-center space-x-2">
-              <input
-                type="radio"
-                value="manual"
-                checked={selectionMode === 'manual'}
-                onChange={(e) => setSelectionMode(e.target.value as SelectionMode)}
-                className="rounded"
-              />
-              <span className="text-sm font-medium">Manual Selection</span>
-            </label>
-            <label className="flex items-center space-x-2">
-              <input
-                type="radio"
-                value="primary"
-                checked={selectionMode === 'primary'}
-                onChange={(e) => setSelectionMode(e.target.value as SelectionMode)}
-                className="rounded"
-              />
-              <span className="text-sm font-medium">Primary Auto-Select</span>
-            </label>
-            <label className="flex items-center space-x-2">
-              <input
-                type="radio"
-                value="secondary"
-                checked={selectionMode === 'secondary'}
-                onChange={(e) => setSelectionMode(e.target.value as SelectionMode)}
-                className="rounded"
-              />
-              <span className="text-sm font-medium">Secondary Auto-Select</span>
-            </label>
-          </div>
-          {(selectionMode === 'primary' || selectionMode === 'secondary') && (
-            <div className="text-sm text-blue-600">
-              Current: {customers[currentCustomerIndex]?.name} ({currentCustomerIndex + 1}/{customers.length})
-            </div>
-          )}
+        <div className="text-sm text-blue-600">
+          Current Customer: {customers[currentCustomerIndex]?.name} ({currentCustomerIndex + 1}/{customers.length})
         </div>
       </Card>
 
@@ -522,7 +561,7 @@ export const BulkDeliveryEntry = () => {
       <Card className="p-6">
         <div className="flex items-center justify-between mb-6">
           <h3 className="text-xl font-semibold text-blue-600">
-            Entry Form
+            Entry Form - {currentEntry.customerName}
           </h3>
           <div className="flex gap-2">
             <Button
@@ -539,41 +578,10 @@ export const BulkDeliveryEntry = () => {
               disabled={isLoading}
             >
               <ArrowRight className="h-4 w-4 mr-2" />
-              Save Entry
+              Save & Next
             </Button>
           </div>
         </div>
-
-        {/* Customer Selection */}
-        {selectionMode === 'manual' && (
-          <div className="mb-4">
-            <Label>Customer *</Label>
-            <Select value={currentEntry.customerId} onValueChange={(value) => updateEntry('customerId', value)}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select customer" />
-              </SelectTrigger>
-              <SelectContent>
-                {customers.map((customer) => (
-                  <SelectItem key={customer.id} value={customer.id}>
-                    {customer.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-
-        {/* Auto-selected customer display */}
-        {(selectionMode === 'primary' || selectionMode === 'secondary') && (
-          <div className="mb-4">
-            <Label>Selected Customer</Label>
-            <Input
-              value={currentEntry.customerName}
-              readOnly
-              className="bg-gray-100"
-            />
-          </div>
-        )}
 
         {/* Grocery Only Toggle */}
         <div className="mb-4">
@@ -696,6 +704,77 @@ export const BulkDeliveryEntry = () => {
                 </span>
               )}
             </p>
+          </div>
+        )}
+      </Card>
+
+      {/* Customer Bills Section */}
+      <Card className="p-6">
+        <div className="mb-4">
+          <h3 className="text-xl font-semibold text-gray-900 mb-4">Customer Bills</h3>
+          <div>
+            <Label>Select Customer to View Bills:</Label>
+            <Select value={selectedCustomerForBill} onValueChange={setSelectedCustomerForBill}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select customer" />
+              </SelectTrigger>
+              <SelectContent>
+                {customers.map((customer) => (
+                  <SelectItem key={customer.id} value={customer.id}>
+                    {customer.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {selectedCustomerForBill && customerBills[selectedCustomerForBill] && (
+          <div className="space-y-4">
+            <h4 className="text-lg font-medium text-gray-900">
+              Bills for {customerBills[selectedCustomerForBill].customerName}
+            </h4>
+            
+            {customerBills[selectedCustomerForBill].bills.length === 0 ? (
+              <p className="text-gray-500">No bills found for this customer.</p>
+            ) : (
+              <div className="space-y-3">
+                {customerBills[selectedCustomerForBill].bills.map((bill, index) => (
+                  <div key={index} className="p-4 bg-gray-50 rounded-lg">
+                    <div className="flex justify-between items-start mb-2">
+                      <h5 className="font-medium text-gray-900">
+                        {format(new Date(bill.date), 'dd/MM/yyyy')}
+                      </h5>
+                      <span className="text-lg font-bold text-green-600">
+                        ₹{bill.totalAmount}
+                      </span>
+                    </div>
+                    
+                    {bill.quantity > 0 && (
+                      <div className="mb-2">
+                        <p className="text-sm text-gray-700">
+                          <strong>Milk:</strong> {bill.milkType} - {bill.quantity}ml 
+                          <span className="text-green-600 ml-2">₹{bill.milkTotal}</span>
+                        </p>
+                      </div>
+                    )}
+                    
+                    {bill.groceryItems.length > 0 && (
+                      <div>
+                        <p className="text-sm font-medium text-gray-700 mb-1">Grocery Items:</p>
+                        <div className="space-y-1">
+                          {bill.groceryItems.map((item, itemIndex) => (
+                            <p key={itemIndex} className="text-sm text-gray-600 ml-2">
+                              • {item.name} - <span className="text-green-600">₹{item.price}</span>
+                            </p>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </Card>
