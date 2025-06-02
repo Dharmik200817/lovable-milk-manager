@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Calendar as CalendarIcon, Plus, Trash2, ArrowRight, SkipForward } from 'lucide-react';
+import { Calendar as CalendarIcon, Plus, Trash2, ArrowRight, RotateCcw } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
@@ -29,10 +29,7 @@ interface MilkType {
 interface GroceryItem {
   id: string;
   name: string;
-  quantity: number;
-  unit: string;
-  price: number;
-  description: string;
+  total: number;
 }
 
 interface BulkEntry {
@@ -53,11 +50,15 @@ interface CustomerMemory {
   };
 }
 
+type SelectionMode = 'manual' | 'primary' | 'secondary';
+
 export const BulkDeliveryEntry = () => {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [milkTypes, setMilkTypes] = useState<MilkType[]>([]);
   const [customerMemory, setCustomerMemory] = useState<CustomerMemory>({});
+  const [selectionMode, setSelectionMode] = useState<SelectionMode>('manual');
+  const [currentCustomerIndex, setCurrentCustomerIndex] = useState(0);
   const [currentEntry, setCurrentEntry] = useState<BulkEntry>({
     customerId: '',
     customerName: '',
@@ -75,6 +76,16 @@ export const BulkDeliveryEntry = () => {
     loadMilkTypes();
     loadCustomerMemory();
   }, []);
+
+  useEffect(() => {
+    // Auto-select customer when in bulk mode
+    if ((selectionMode === 'primary' || selectionMode === 'secondary') && customers.length > 0) {
+      const customer = customers[currentCustomerIndex];
+      if (customer) {
+        updateEntry('customerId', customer.id);
+      }
+    }
+  }, [selectionMode, currentCustomerIndex, customers]);
 
   const loadCustomers = async () => {
     try {
@@ -134,7 +145,7 @@ export const BulkDeliveryEntry = () => {
         if (!memory[record.customer_id]) {
           memory[record.customer_id] = {
             milkTypeId: record.milk_type_id,
-            quantity: Math.round(record.quantity * 1000) // Convert liters to ml
+            quantity: Math.round(record.quantity * 1000)
           };
         }
       });
@@ -171,7 +182,6 @@ export const BulkDeliveryEntry = () => {
         pricePerLiter: roundedPrice
       });
     } else if (field === 'quantity') {
-      // Ensure quantity is always a number
       const numericValue = typeof value === 'string' ? parseFloat(value) || 0 : (typeof value === 'number' ? value : 0);
       console.log('Setting quantity to:', numericValue);
       setCurrentEntry({ 
@@ -196,10 +206,7 @@ export const BulkDeliveryEntry = () => {
     const newGroceryItem: GroceryItem = {
       id: Date.now().toString(),
       name: '',
-      quantity: 0,
-      unit: '',
-      price: 0,
-      description: ''
+      total: 0
     };
     setCurrentEntry({
       ...currentEntry,
@@ -209,17 +216,11 @@ export const BulkDeliveryEntry = () => {
 
   const updateGroceryItem = (itemIndex: number, field: keyof GroceryItem, value: string | number) => {
     const updatedItems = [...currentEntry.groceryItems];
-    if (field === 'quantity') {
-      const numericValue = typeof value === 'string' ? parseFloat(value) || 0 : value;
-      updatedItems[itemIndex] = {
-        ...updatedItems[itemIndex],
-        quantity: numericValue
-      };
-    } else if (field === 'price') {
+    if (field === 'total') {
       const numericValue = typeof value === 'string' ? Math.ceil(parseFloat(value) || 0) : Math.ceil(value);
       updatedItems[itemIndex] = {
         ...updatedItems[itemIndex],
-        price: numericValue
+        total: numericValue
       };
     } else {
       updatedItems[itemIndex] = {
@@ -243,12 +244,12 @@ export const BulkDeliveryEntry = () => {
   const calculateTotal = () => {
     let milkTotal = 0;
     if (!currentEntry.isGroceryOnly && currentEntry.quantity && currentEntry.pricePerLiter) {
-      const liters = currentEntry.quantity / 1000; // Convert ml to liters for calculation
+      const liters = currentEntry.quantity / 1000;
       milkTotal = liters * currentEntry.pricePerLiter;
     }
     
     const groceryTotal = currentEntry.groceryItems.reduce((sum, item) => {
-      return sum + (item.quantity * item.price);
+      return sum + item.total;
     }, 0);
     
     return Math.ceil(milkTotal + groceryTotal);
@@ -286,17 +287,16 @@ export const BulkDeliveryEntry = () => {
     try {
       let deliveryRecordId = null;
       
-      // Save delivery record only if not grocery-only or if there's milk
       if (!currentEntry.isGroceryOnly && currentEntry.quantity > 0) {
         const totalAmount = calculateTotal();
-        const quantityInLiters = currentEntry.quantity / 1000; // Convert ml to liters for storage
+        const quantityInLiters = currentEntry.quantity / 1000;
         
         const { data: deliveryData, error: deliveryError } = await supabase
           .from('delivery_records')
           .insert({
             customer_id: currentEntry.customerId,
             milk_type_id: currentEntry.milkTypeId,
-            quantity: quantityInLiters, // Store in liters in database
+            quantity: quantityInLiters,
             price_per_liter: currentEntry.pricePerLiter,
             total_amount: totalAmount,
             delivery_date: format(selectedDate, 'yyyy-MM-dd')
@@ -312,17 +312,16 @@ export const BulkDeliveryEntry = () => {
         deliveryRecordId = deliveryData.id;
       }
 
-      // Insert grocery items
       if (currentEntry.groceryItems.length > 0) {
         const groceryItemsToInsert = currentEntry.groceryItems
-          .filter(item => item.name && item.quantity > 0)
+          .filter(item => item.name && item.total > 0)
           .map(item => ({
             delivery_record_id: deliveryRecordId,
             name: item.name,
-            quantity: item.quantity,
-            unit: item.unit,
-            price: Math.ceil(item.price),
-            description: item.description || ''
+            quantity: 1,
+            unit: 'item',
+            price: Math.ceil(item.total),
+            description: ''
           }));
 
         if (groceryItemsToInsert.length > 0) {
@@ -337,7 +336,6 @@ export const BulkDeliveryEntry = () => {
         }
       }
 
-      // Update customer balance - store amount in rupees as whole numbers
       const totalAmount = calculateTotal();
       if (totalAmount > 0) {
         const { data: existingBalance } = await supabase
@@ -364,13 +362,12 @@ export const BulkDeliveryEntry = () => {
         }
       }
 
-      // Update customer memory - store quantity in ml
       if (!currentEntry.isGroceryOnly && currentEntry.milkTypeId && currentEntry.quantity > 0) {
         setCustomerMemory(prev => ({
           ...prev,
           [currentEntry.customerId]: {
             milkTypeId: currentEntry.milkTypeId,
-            quantity: currentEntry.quantity // Store in ml
+            quantity: currentEntry.quantity
           }
         }));
       }
@@ -397,17 +394,26 @@ export const BulkDeliveryEntry = () => {
         description: `Entry saved for ${currentEntry.customerName}`,
       });
       
-      // Reset form for next entry
-      setCurrentEntry({
-        customerId: '',
-        customerName: '',
-        milkTypeId: '',
-        milkTypeName: '',
-        quantity: 0,
-        pricePerLiter: 0,
-        groceryItems: [],
-        isGroceryOnly: false
-      });
+      if (selectionMode === 'primary' || selectionMode === 'secondary') {
+        // Move to next customer in bulk mode
+        const nextIndex = (currentCustomerIndex + 1) % customers.length;
+        setCurrentCustomerIndex(nextIndex);
+        
+        // Reset form for next entry
+        setCurrentEntry({
+          customerId: '',
+          customerName: '',
+          milkTypeId: '',
+          milkTypeName: '',
+          quantity: 0,
+          pricePerLiter: 0,
+          groceryItems: [],
+          isGroceryOnly: false
+        });
+      } else {
+        // Manual mode - just reset form
+        resetForm();
+      }
     }
   };
 
@@ -468,6 +474,50 @@ export const BulkDeliveryEntry = () => {
         </div>
       </Card>
 
+      {/* Selection Mode */}
+      <Card className="p-4">
+        <div className="space-y-4">
+          <Label>Entry Mode:</Label>
+          <div className="flex gap-4">
+            <label className="flex items-center space-x-2">
+              <input
+                type="radio"
+                value="manual"
+                checked={selectionMode === 'manual'}
+                onChange={(e) => setSelectionMode(e.target.value as SelectionMode)}
+                className="rounded"
+              />
+              <span className="text-sm font-medium">Manual Selection</span>
+            </label>
+            <label className="flex items-center space-x-2">
+              <input
+                type="radio"
+                value="primary"
+                checked={selectionMode === 'primary'}
+                onChange={(e) => setSelectionMode(e.target.value as SelectionMode)}
+                className="rounded"
+              />
+              <span className="text-sm font-medium">Primary Auto-Select</span>
+            </label>
+            <label className="flex items-center space-x-2">
+              <input
+                type="radio"
+                value="secondary"
+                checked={selectionMode === 'secondary'}
+                onChange={(e) => setSelectionMode(e.target.value as SelectionMode)}
+                className="rounded"
+              />
+              <span className="text-sm font-medium">Secondary Auto-Select</span>
+            </label>
+          </div>
+          {(selectionMode === 'primary' || selectionMode === 'secondary') && (
+            <div className="text-sm text-blue-600">
+              Current: {customers[currentCustomerIndex]?.name} ({currentCustomerIndex + 1}/{customers.length})
+            </div>
+          )}
+        </div>
+      </Card>
+
       {/* Current Entry Form */}
       <Card className="p-6">
         <div className="flex items-center justify-between mb-6">
@@ -480,6 +530,7 @@ export const BulkDeliveryEntry = () => {
               variant="outline"
               className="text-orange-600 hover:text-orange-700"
             >
+              <RotateCcw className="h-4 w-4 mr-2" />
               Reset Form
             </Button>
             <Button
@@ -494,21 +545,35 @@ export const BulkDeliveryEntry = () => {
         </div>
 
         {/* Customer Selection */}
-        <div className="mb-4">
-          <Label>Customer *</Label>
-          <Select value={currentEntry.customerId} onValueChange={(value) => updateEntry('customerId', value)}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select customer" />
-            </SelectTrigger>
-            <SelectContent>
-              {customers.map((customer) => (
-                <SelectItem key={customer.id} value={customer.id}>
-                  {customer.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {selectionMode === 'manual' && (
+          <div className="mb-4">
+            <Label>Customer *</Label>
+            <Select value={currentEntry.customerId} onValueChange={(value) => updateEntry('customerId', value)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select customer" />
+              </SelectTrigger>
+              <SelectContent>
+                {customers.map((customer) => (
+                  <SelectItem key={customer.id} value={customer.id}>
+                    {customer.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {/* Auto-selected customer display */}
+        {(selectionMode === 'primary' || selectionMode === 'secondary') && (
+          <div className="mb-4">
+            <Label>Selected Customer</Label>
+            <Input
+              value={currentEntry.customerName}
+              readOnly
+              className="bg-gray-100"
+            />
+          </div>
+        )}
 
         {/* Grocery Only Toggle */}
         <div className="mb-4">
@@ -584,51 +649,24 @@ export const BulkDeliveryEntry = () => {
           {currentEntry.groceryItems.length > 0 && (
             <div className="space-y-3">
               {currentEntry.groceryItems.map((item, itemIndex) => (
-                <div key={item.id} className="grid grid-cols-1 md:grid-cols-6 gap-3 p-3 bg-gray-50 rounded-lg">
+                <div key={item.id} className="grid grid-cols-1 md:grid-cols-3 gap-3 p-3 bg-gray-50 rounded-lg">
                   <div>
-                    <Label className="text-xs">Item Name</Label>
+                    <Label className="text-xs">Item Name (Description)</Label>
                     <Input
                       value={item.name}
                       onChange={(e) => updateGroceryItem(itemIndex, 'name', e.target.value)}
-                      placeholder="Item name"
+                      placeholder="Item description"
                     />
                   </div>
                   <div>
-                    <Label className="text-xs">Quantity</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={item.quantity || ''}
-                      onChange={(e) => updateGroceryItem(itemIndex, 'quantity', e.target.value)}
-                      placeholder="Qty"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Unit</Label>
-                    <Input
-                      value={item.unit}
-                      onChange={(e) => updateGroceryItem(itemIndex, 'unit', e.target.value)}
-                      placeholder="kg, pcs, etc"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Price (₹)</Label>
+                    <Label className="text-xs">Total Price (₹)</Label>
                     <Input
                       type="number"
                       step="1"
                       min="0"
-                      value={item.price || ''}
-                      onChange={(e) => updateGroceryItem(itemIndex, 'price', e.target.value)}
-                      placeholder="Price"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Description</Label>
-                    <Input
-                      value={item.description}
-                      onChange={(e) => updateGroceryItem(itemIndex, 'description', e.target.value)}
-                      placeholder="Optional"
+                      value={item.total || ''}
+                      onChange={(e) => updateGroceryItem(itemIndex, 'total', e.target.value)}
+                      placeholder="Total price"
                     />
                   </div>
                   <div className="flex items-end">
@@ -648,7 +686,7 @@ export const BulkDeliveryEntry = () => {
         </div>
 
         {/* Total */}
-        {((!currentEntry.isGroceryOnly && currentEntry.quantity && currentEntry.pricePerLiter) || currentEntry.groceryItems.some(item => item.quantity && item.price)) && (
+        {((!currentEntry.isGroceryOnly && currentEntry.quantity && currentEntry.pricePerLiter) || currentEntry.groceryItems.some(item => item.total)) && (
           <div className="mt-4 p-3 bg-blue-50 rounded-lg">
             <p className="text-sm font-medium text-blue-900">
               Total Amount: ₹{calculateTotal()}
