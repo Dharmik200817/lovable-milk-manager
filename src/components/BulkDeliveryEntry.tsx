@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Calendar as CalendarIcon, Plus, Trash2, ArrowRight, RotateCcw } from 'lucide-react';
+import { Calendar as CalendarIcon, Plus, Trash2, ArrowRight, SkipForward } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
@@ -41,6 +41,7 @@ interface BulkEntry {
   pricePerLiter: number;
   groceryItems: GroceryItem[];
   isGroceryOnly: boolean;
+  deliveryTime: 'morning' | 'evening';
 }
 
 interface CustomerMemory {
@@ -50,19 +51,10 @@ interface CustomerMemory {
   };
 }
 
-interface CustomerBill {
-  date: string;
-  milkType: string;
-  quantity: number;
-  milkTotal: number;
-  groceryItems: { name: string; price: number }[];
-  totalAmount: number;
-}
-
-interface CustomerBills {
+interface DateBasedMemory {
   [customerId: string]: {
-    customerName: string;
-    bills: CustomerBill[];
+    milkTypeId: string;
+    quantity: number;
   };
 }
 
@@ -71,9 +63,9 @@ export const BulkDeliveryEntry = () => {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [milkTypes, setMilkTypes] = useState<MilkType[]>([]);
   const [customerMemory, setCustomerMemory] = useState<CustomerMemory>({});
+  const [dateBasedMemory, setDateBasedMemory] = useState<DateBasedMemory>({});
   const [currentCustomerIndex, setCurrentCustomerIndex] = useState(0);
-  const [customerBills, setCustomerBills] = useState<CustomerBills>({});
-  const [selectedCustomerForBill, setSelectedCustomerForBill] = useState<string>('');
+  const [autoSelectMode, setAutoSelectMode] = useState(true);
   const [currentEntry, setCurrentEntry] = useState<BulkEntry>({
     customerId: '',
     customerName: '',
@@ -82,7 +74,8 @@ export const BulkDeliveryEntry = () => {
     quantity: 0,
     pricePerLiter: 0,
     groceryItems: [],
-    isGroceryOnly: false
+    isGroceryOnly: false,
+    deliveryTime: 'morning'
   });
   const [isLoading, setIsLoading] = useState(false);
 
@@ -90,18 +83,20 @@ export const BulkDeliveryEntry = () => {
     loadCustomers();
     loadMilkTypes();
     loadCustomerMemory();
-    loadCustomerBills();
   }, []);
 
   useEffect(() => {
-    // Auto-select customer in secondary mode
-    if (customers.length > 0) {
+    loadDateBasedMemory();
+  }, [selectedDate]);
+
+  useEffect(() => {
+    if (autoSelectMode && customers.length > 0) {
       const customer = customers[currentCustomerIndex];
       if (customer) {
         updateEntry('customerId', customer.id);
       }
     }
-  }, [currentCustomerIndex, customers]);
+  }, [currentCustomerIndex, customers, dateBasedMemory, autoSelectMode]);
 
   const loadCustomers = async () => {
     try {
@@ -110,10 +105,7 @@ export const BulkDeliveryEntry = () => {
         .select('*')
         .order('name');
       
-      if (error) {
-        console.error('Error loading customers:', error);
-        throw error;
-      }
+      if (error) throw error;
       setCustomers(data || []);
     } catch (error) {
       console.error('Error loading customers:', error);
@@ -132,10 +124,7 @@ export const BulkDeliveryEntry = () => {
         .select('*')
         .order('name');
       
-      if (error) {
-        console.error('Error loading milk types:', error);
-        throw error;
-      }
+      if (error) throw error;
       setMilkTypes(data || []);
     } catch (error) {
       console.error('Error loading milk types:', error);
@@ -172,74 +161,37 @@ export const BulkDeliveryEntry = () => {
     }
   };
 
-  const loadCustomerBills = async () => {
+  const loadDateBasedMemory = async () => {
     try {
-      const { data: deliveryData, error: deliveryError } = await supabase
+      const { data, error } = await supabase
         .from('delivery_records')
-        .select(`
-          *,
-          customers(name),
-          milk_types(name)
-        `)
-        .order('delivery_date', { ascending: false });
+        .select('customer_id, milk_type_id, quantity')
+        .eq('delivery_date', format(selectedDate, 'yyyy-MM-dd'))
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
 
-      if (deliveryError) throw deliveryError;
-
-      const { data: groceryData, error: groceryError } = await supabase
-        .from('grocery_items')
-        .select('*');
-
-      if (groceryError) throw groceryError;
-
-      const bills: CustomerBills = {};
-
-      deliveryData?.forEach(record => {
-        const customerId = record.customer_id;
-        const customerName = record.customers?.name || 'Unknown';
-        const date = record.delivery_date;
-
-        if (!bills[customerId]) {
-          bills[customerId] = {
-            customerName,
-            bills: []
-          };
-        }
-
-        // Get grocery items for this delivery
-        const relatedGroceryItems = groceryData?.filter(
-          item => item.delivery_record_id === record.id
-        ) || [];
-
-        const groceryItems = relatedGroceryItems.map(item => ({
-          name: item.name,
-          price: item.price
-        }));
-
-        const groceryTotal = groceryItems.reduce((sum, item) => sum + item.price, 0);
-        const milkTotal = record.total_amount - groceryTotal;
-
-        bills[customerId].bills.push({
-          date,
-          milkType: record.milk_types?.name || 'Unknown',
-          quantity: Math.round(record.quantity * 1000),
-          milkTotal,
-          groceryItems,
-          totalAmount: record.total_amount
-        });
+      const dateMemory: DateBasedMemory = {};
+      data?.forEach(record => {
+        dateMemory[record.customer_id] = {
+          milkTypeId: record.milk_type_id,
+          quantity: Math.round(record.quantity * 1000)
+        };
       });
-
-      setCustomerBills(bills);
+      
+      setDateBasedMemory(dateMemory);
     } catch (error) {
-      console.error('Error loading customer bills:', error);
+      console.error('Error loading date-based memory:', error);
     }
   };
 
   const updateEntry = (field: keyof BulkEntry, value: string | number | boolean) => {
-    console.log('updateEntry called with:', field, value, typeof value);
-    
     if (field === 'customerId') {
       const customer = customers.find(c => c.id === value);
-      const memory = customerMemory[value as string];
+      
+      const dateMemory = dateBasedMemory[value as string];
+      const generalMemory = customerMemory[value as string];
+      const memory = dateMemory || generalMemory;
       
       setCurrentEntry({
         ...currentEntry,
@@ -261,7 +213,6 @@ export const BulkDeliveryEntry = () => {
       });
     } else if (field === 'quantity') {
       const numericValue = typeof value === 'string' ? parseFloat(value) || 0 : (typeof value === 'number' ? value : 0);
-      console.log('Setting quantity to:', numericValue);
       setCurrentEntry({ 
         ...currentEntry, 
         quantity: numericValue
@@ -377,7 +328,8 @@ export const BulkDeliveryEntry = () => {
             quantity: quantityInLiters,
             price_per_liter: currentEntry.pricePerLiter,
             total_amount: totalAmount,
-            delivery_date: format(selectedDate, 'yyyy-MM-dd')
+            delivery_date: format(selectedDate, 'yyyy-MM-dd'),
+            notes: currentEntry.deliveryTime
           })
           .select()
           .single();
@@ -448,6 +400,14 @@ export const BulkDeliveryEntry = () => {
             quantity: currentEntry.quantity
           }
         }));
+        
+        setDateBasedMemory(prev => ({
+          ...prev,
+          [currentEntry.customerId]: {
+            milkTypeId: currentEntry.milkTypeId,
+            quantity: currentEntry.quantity
+          }
+        }));
       }
 
       return true;
@@ -472,11 +432,9 @@ export const BulkDeliveryEntry = () => {
         description: `Entry saved for ${currentEntry.customerName}`,
       });
       
-      // Move to next customer and cycle back to first after last
       const nextIndex = (currentCustomerIndex + 1) % customers.length;
       setCurrentCustomerIndex(nextIndex);
       
-      // Reset form for next entry
       setCurrentEntry({
         customerId: '',
         customerName: '',
@@ -485,15 +443,16 @@ export const BulkDeliveryEntry = () => {
         quantity: 0,
         pricePerLiter: 0,
         groceryItems: [],
-        isGroceryOnly: false
+        isGroceryOnly: false,
+        deliveryTime: 'morning'
       });
-
-      // Reload customer bills to show updated data
-      loadCustomerBills();
     }
   };
 
-  const resetForm = () => {
+  const handleSkipCustomer = () => {
+    const nextIndex = (currentCustomerIndex + 1) % customers.length;
+    setCurrentCustomerIndex(nextIndex);
+    
     setCurrentEntry({
       customerId: '',
       customerName: '',
@@ -502,7 +461,13 @@ export const BulkDeliveryEntry = () => {
       quantity: 0,
       pricePerLiter: 0,
       groceryItems: [],
-      isGroceryOnly: false
+      isGroceryOnly: false,
+      deliveryTime: 'morning'
+    });
+
+    toast({
+      title: "Skipped",
+      description: `Skipped ${currentEntry.customerName}`,
     });
   };
 
@@ -550,10 +515,23 @@ export const BulkDeliveryEntry = () => {
         </div>
       </Card>
 
-      {/* Current Customer Display */}
+      {/* Customer Selection Mode */}
       <Card className="p-4">
-        <div className="text-sm text-blue-600">
-          Current Customer: {customers[currentCustomerIndex]?.name} ({currentCustomerIndex + 1}/{customers.length})
+        <div className="flex items-center justify-between">
+          <div className="text-sm text-blue-600">
+            {autoSelectMode ? (
+              <>Current Customer: {customers[currentCustomerIndex]?.name} ({currentCustomerIndex + 1}/{customers.length})</>
+            ) : (
+              'Manual Customer Selection Mode'
+            )}
+          </div>
+          <Button
+            variant="outline"
+            onClick={() => setAutoSelectMode(!autoSelectMode)}
+            className="text-sm"
+          >
+            {autoSelectMode ? 'Switch to Manual' : 'Switch to Auto'}
+          </Button>
         </div>
       </Card>
 
@@ -565,12 +543,12 @@ export const BulkDeliveryEntry = () => {
           </h3>
           <div className="flex gap-2">
             <Button
-              onClick={resetForm}
+              onClick={handleSkipCustomer}
               variant="outline"
               className="text-orange-600 hover:text-orange-700"
             >
-              <RotateCcw className="h-4 w-4 mr-2" />
-              Reset Form
+              <SkipForward className="h-4 w-4 mr-2" />
+              Skip Customer
             </Button>
             <Button
               onClick={handleNext}
@@ -581,6 +559,39 @@ export const BulkDeliveryEntry = () => {
               Save & Next
             </Button>
           </div>
+        </div>
+
+        {/* Manual Customer Selection */}
+        {!autoSelectMode && (
+          <div className="mb-4">
+            <Label>Select Customer *</Label>
+            <Select value={currentEntry.customerId} onValueChange={(value) => updateEntry('customerId', value)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select customer" />
+              </SelectTrigger>
+              <SelectContent>
+                {customers.map((customer) => (
+                  <SelectItem key={customer.id} value={customer.id}>
+                    {customer.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {/* Delivery Time Selection */}
+        <div className="mb-4">
+          <Label>Delivery Time</Label>
+          <Select value={currentEntry.deliveryTime} onValueChange={(value) => updateEntry('deliveryTime', value as 'morning' | 'evening')}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="morning">Morning</SelectItem>
+              <SelectItem value="evening">Evening</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Grocery Only Toggle */}
@@ -704,77 +715,6 @@ export const BulkDeliveryEntry = () => {
                 </span>
               )}
             </p>
-          </div>
-        )}
-      </Card>
-
-      {/* Customer Bills Section */}
-      <Card className="p-6">
-        <div className="mb-4">
-          <h3 className="text-xl font-semibold text-gray-900 mb-4">Customer Bills</h3>
-          <div>
-            <Label>Select Customer to View Bills:</Label>
-            <Select value={selectedCustomerForBill} onValueChange={setSelectedCustomerForBill}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select customer" />
-              </SelectTrigger>
-              <SelectContent>
-                {customers.map((customer) => (
-                  <SelectItem key={customer.id} value={customer.id}>
-                    {customer.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        {selectedCustomerForBill && customerBills[selectedCustomerForBill] && (
-          <div className="space-y-4">
-            <h4 className="text-lg font-medium text-gray-900">
-              Bills for {customerBills[selectedCustomerForBill].customerName}
-            </h4>
-            
-            {customerBills[selectedCustomerForBill].bills.length === 0 ? (
-              <p className="text-gray-500">No bills found for this customer.</p>
-            ) : (
-              <div className="space-y-3">
-                {customerBills[selectedCustomerForBill].bills.map((bill, index) => (
-                  <div key={index} className="p-4 bg-gray-50 rounded-lg">
-                    <div className="flex justify-between items-start mb-2">
-                      <h5 className="font-medium text-gray-900">
-                        {format(new Date(bill.date), 'dd/MM/yyyy')}
-                      </h5>
-                      <span className="text-lg font-bold text-green-600">
-                        ₹{bill.totalAmount}
-                      </span>
-                    </div>
-                    
-                    {bill.quantity > 0 && (
-                      <div className="mb-2">
-                        <p className="text-sm text-gray-700">
-                          <strong>Milk:</strong> {bill.milkType} - {bill.quantity}ml 
-                          <span className="text-green-600 ml-2">₹{bill.milkTotal}</span>
-                        </p>
-                      </div>
-                    )}
-                    
-                    {bill.groceryItems.length > 0 && (
-                      <div>
-                        <p className="text-sm font-medium text-gray-700 mb-1">Grocery Items:</p>
-                        <div className="space-y-1">
-                          {bill.groceryItems.map((item, itemIndex) => (
-                            <p key={itemIndex} className="text-sm text-gray-600 ml-2">
-                              • {item.name} - <span className="text-green-600">₹{item.price}</span>
-                            </p>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         )}
       </Card>

@@ -1,33 +1,49 @@
+
 import React, { useState } from 'react';
 import { CustomerManagement } from '../components/CustomerManagement';
 import { MilkTypesManagement } from '../components/MilkTypesManagement';
 import { DeliveryRecords } from '../components/DeliveryRecords';
 import { PaymentTracking } from '../components/PaymentTracking';
 import { Dashboard } from '../components/Dashboard';
-import { Users, Milk, Calendar, CreditCard, Home } from 'lucide-react';
+import { CustomerBills } from '../components/CustomerBills';
+import { Users, Milk, Calendar, CreditCard, Home, Receipt } from 'lucide-react';
+
 const Index = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
-  const tabs = [{
-    id: 'dashboard',
-    label: 'Dashboard',
-    icon: Home
-  }, {
-    id: 'customers',
-    label: 'Customers',
-    icon: Users
-  }, {
-    id: 'milk-types',
-    label: 'Milk Types',
-    icon: Milk
-  }, {
-    id: 'delivery',
-    label: 'Delivery Records',
-    icon: Calendar
-  }, {
-    id: 'payments',
-    label: 'Payments',
-    icon: CreditCard
-  }];
+
+  const tabs = [
+    {
+      id: 'dashboard',
+      label: 'Dashboard',
+      icon: Home
+    },
+    {
+      id: 'customers',
+      label: 'Customers',
+      icon: Users
+    },
+    {
+      id: 'milk-types',
+      label: 'Milk Types',
+      icon: Milk
+    },
+    {
+      id: 'delivery',
+      label: 'Delivery Records',
+      icon: Calendar
+    },
+    {
+      id: 'payments',
+      label: 'Payments',
+      icon: CreditCard
+    },
+    {
+      id: 'customer-bills',
+      label: 'Customer Bills',
+      icon: Receipt
+    }
+  ];
+
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
@@ -40,11 +56,15 @@ const Index = () => {
         return <DeliveryRecords />;
       case 'payments':
         return <PaymentTracking />;
+      case 'customer-bills':
+        return <CustomerBills />;
       default:
         return <Dashboard onNavigate={setActiveTab} />;
     }
   };
-  return <div className="min-h-screen bg-gray-50">
+
+  return (
+    <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -54,7 +74,7 @@ const Index = () => {
               <h1 className="text-2xl font-bold text-gray-900">Narmada dairy Milk Management</h1>
             </div>
             <div className="text-sm text-gray-500">
-          </div>
+            </div>
           </div>
         </div>
       </header>
@@ -64,12 +84,22 @@ const Index = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex space-x-8">
             {tabs.map(tab => {
-            const Icon = tab.icon;
-            return <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === tab.id ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}>
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                    activeTab === tab.id
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
                   <Icon className="h-5 w-5 mr-2" />
                   {tab.label}
-                </button>;
-          })}
+                </button>
+              );
+            })}
           </div>
         </div>
       </nav>
@@ -78,6 +108,8 @@ const Index = () => {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {renderContent()}
       </main>
-    </div>;
+    </div>
+  );
 };
+
 export default Index;
