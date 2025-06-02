@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -8,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Plus, Calendar as CalendarIcon, Search, DollarSign } from 'lucide-react';
+import { Plus, Calendar as CalendarIcon, Search, DollarSign, ExternalLink } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
@@ -29,7 +28,11 @@ interface Customer {
   pending_amount: number;
 }
 
-export const PaymentTracking = () => {
+interface PaymentTrackingProps {
+  onNavigateToDelivery?: (customerId?: string) => void;
+}
+
+export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) => {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
@@ -202,6 +205,12 @@ export const PaymentTracking = () => {
   const getCustomerPendingAmount = (customerName: string) => {
     const customer = customers.find(c => c.name === customerName);
     return customer?.pending_amount || 0;
+  };
+
+  const handleViewDeliveryRecords = (customerId: string) => {
+    if (onNavigateToDelivery) {
+      onNavigateToDelivery(customerId);
+    }
   };
 
   return (
@@ -388,12 +397,15 @@ export const PaymentTracking = () => {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Pending Amount
                 </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {customers.filter(customer => customer.pending_amount > 0).length === 0 ? (
                 <tr>
-                  <td colSpan={2} className="px-6 py-8 text-center text-gray-500">
+                  <td colSpan={3} className="px-6 py-8 text-center text-gray-500">
                     No outstanding balances
                   </td>
                 </tr>
@@ -408,6 +420,17 @@ export const PaymentTracking = () => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-red-600">
                         ₹{Math.ceil(customer.pending_amount)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <Button
+                          onClick={() => handleViewDeliveryRecords(customer.id)}
+                          variant="outline"
+                          size="sm"
+                          className="text-blue-600 hover:text-blue-700"
+                        >
+                          <ExternalLink className="h-4 w-4 mr-1" />
+                          View Records
+                        </Button>
                       </td>
                     </tr>
                   ))

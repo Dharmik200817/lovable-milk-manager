@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -38,7 +37,11 @@ interface MilkType {
   price_per_liter: number;
 }
 
-export const DeliveryRecords = () => {
+interface DeliveryRecordsProps {
+  highlightCustomerId?: string;
+}
+
+export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) => {
   const [deliveryRecords, setDeliveryRecords] = useState<DeliveryRecord[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [milkTypes, setMilkTypes] = useState<MilkType[]>([]);
@@ -54,6 +57,7 @@ export const DeliveryRecords = () => {
     quantity: '',
     pricePerLiter: '',
     deliveryDate: new Date(),
+    deliveryTime: 'Morning',
     notes: ''
   });
 
@@ -62,6 +66,23 @@ export const DeliveryRecords = () => {
     loadCustomers();
     loadMilkTypes();
   }, []);
+
+  // Scroll to highlighted customer when component mounts with highlightCustomerId
+  useEffect(() => {
+    if (highlightCustomerId && deliveryRecords.length > 0) {
+      // Find records for the highlighted customer
+      const customerRecords = deliveryRecords.filter(record => record.customer_id === highlightCustomerId);
+      if (customerRecords.length > 0) {
+        // Scroll to first record of this customer
+        setTimeout(() => {
+          const element = document.getElementById(`customer-record-${highlightCustomerId}`);
+          if (element) {
+            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }, 100);
+      }
+    }
+  }, [highlightCustomerId, deliveryRecords]);
 
   const loadDeliveryRecords = async () => {
     try {
@@ -197,8 +218,9 @@ export const DeliveryRecords = () => {
 
     try {
       setIsLoading(true);
-      const quantityInLiters = quantityInMl / 1000; // Convert ml to liters for database storage
-      const totalAmount = Math.ceil(quantityInLiters * price); // Store amount in rupees as whole numbers
+      const quantityInLiters = quantityInMl / 1000;
+      const totalAmount = Math.ceil(quantityInLiters * price);
+      const notesWithTime = `${formData.deliveryTime}${formData.notes ? ` - ${formData.notes}` : ''}`;
 
       console.log('Submitting delivery record:', {
         customer_id: formData.customerId,
@@ -207,7 +229,7 @@ export const DeliveryRecords = () => {
         price_per_liter: price,
         total_amount: totalAmount,
         delivery_date: format(formData.deliveryDate, 'yyyy-MM-dd'),
-        notes: formData.notes
+        notes: notesWithTime
       });
 
       const { error: deliveryError } = await supabase
@@ -215,11 +237,11 @@ export const DeliveryRecords = () => {
         .insert({
           customer_id: formData.customerId,
           milk_type_id: formData.milkTypeId,
-          quantity: quantityInLiters, // Store in liters in database
+          quantity: quantityInLiters,
           price_per_liter: price,
-          total_amount: totalAmount, // Store in rupees as whole numbers
+          total_amount: totalAmount,
           delivery_date: format(formData.deliveryDate, 'yyyy-MM-dd'),
-          notes: formData.notes || null
+          notes: notesWithTime
         });
 
       if (deliveryError) {
@@ -227,7 +249,7 @@ export const DeliveryRecords = () => {
         throw deliveryError;
       }
 
-      // Update customer balance - add amount in rupees as whole numbers
+      // Update customer balance
       const { data: existingBalance } = await supabase
         .from('customer_balances')
         .select('pending_amount')
@@ -265,6 +287,7 @@ export const DeliveryRecords = () => {
         quantity: '',
         pricePerLiter: '',
         deliveryDate: new Date(),
+        deliveryTime: formData.deliveryTime, // Keep the same delivery time for next entry
         notes: ''
       });
       setIsAddDialogOpen(false);
@@ -394,6 +417,22 @@ export const DeliveryRecords = () => {
                   placeholder="e.g., 55"
                   required
                 />
+              </div>
+
+              <div>
+                <Label>Delivery Time *</Label>
+                <Select 
+                  value={formData.deliveryTime} 
+                  onValueChange={(value) => setFormData({ ...formData, deliveryTime: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Morning">Morning</SelectItem>
+                    <SelectItem value="Evening">Evening</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               <div>
@@ -543,11 +582,21 @@ export const DeliveryRecords = () => {
                 </tr>
               ) : (
                 filteredRecords.map((record) => (
-                  <tr key={record.id} className="hover:bg-gray-50">
+                  <tr 
+                    key={record.id} 
+                    id={record.customer_id === highlightCustomerId ? `customer-record-${highlightCustomerId}` : undefined}
+                    className={cn(
+                      "hover:bg-gray-50",
+                      record.customer_id === highlightCustomerId && "bg-blue-50 border-blue-200"
+                    )}
+                  >
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {format(new Date(record.delivery_date), 'dd/MM/yyyy')}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                    <td className={cn(
+                      "px-6 py-4 whitespace-nowrap text-sm font-medium",
+                      record.customer_id === highlightCustomerId ? "text-blue-900" : "text-gray-900"
+                    )}>
                       {record.customer_name}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">

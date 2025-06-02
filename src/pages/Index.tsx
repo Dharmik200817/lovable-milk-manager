@@ -10,6 +10,7 @@ import { Users, Milk, Calendar, CreditCard, Home, Receipt } from 'lucide-react';
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [highlightCustomerId, setHighlightCustomerId] = useState<string | undefined>();
 
   const tabs = [
     {
@@ -44,6 +45,11 @@ const Index = () => {
     }
   ];
 
+  const handleNavigateToDelivery = (customerId?: string) => {
+    setHighlightCustomerId(customerId);
+    setActiveTab('delivery');
+  };
+
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
@@ -53,14 +59,22 @@ const Index = () => {
       case 'milk-types':
         return <MilkTypesManagement />;
       case 'delivery':
-        return <DeliveryRecords />;
+        return <DeliveryRecords highlightCustomerId={highlightCustomerId} />;
       case 'payments':
-        return <PaymentTracking />;
+        return <PaymentTracking onNavigateToDelivery={handleNavigateToDelivery} />;
       case 'customer-bills':
         return <CustomerBills />;
       default:
         return <Dashboard onNavigate={setActiveTab} />;
     }
+  };
+
+  // Clear highlight when switching tabs
+  const handleTabChange = (tabId: string) => {
+    if (tabId !== 'delivery') {
+      setHighlightCustomerId(undefined);
+    }
+    setActiveTab(tabId);
   };
 
   return (
@@ -88,7 +102,7 @@ const Index = () => {
               return (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
+                  onClick={() => handleTabChange(tab.id)}
                   className={`flex items-center py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
                     activeTab === tab.id
                       ? 'border-blue-500 text-blue-600'
