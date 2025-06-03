@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -49,8 +48,8 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
 
   useEffect(() => {
     loadPayments();
-    loadCustomerBalances();
     loadCustomers();
+    loadCustomerBalances();
   }, []);
 
   const loadPayments = async () => {
@@ -75,82 +74,6 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
     }
   };
 
-  const loadCustomerBalances = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('customer_balances_view')
-        .select('*')
-        .gt('pending_amount', 0)
-        .order('pending_amount', { ascending: false });
-
-      if (error) {
-        console.error('Error loading customer balances:', error);
-        // Fallback to manual calculation if view doesn't exist
-        const { data: deliveryData, error: deliveryError } = await supabase
-          .from('delivery_records')
-          .select(`
-            customer_id,
-            total_amount,
-            customers(name)
-          `);
-
-        if (deliveryError) throw deliveryError;
-
-        const { data: paymentData, error: paymentError } = await supabase
-          .from('payments')
-          .select('customer_name, amount');
-
-        if (paymentError) throw paymentError;
-
-        // Calculate balances manually
-        const balances: { [key: string]: { name: string; amount: number } } = {};
-        
-        deliveryData?.forEach(record => {
-          const customerId = record.customer_id;
-          const customerName = record.customers?.name || 'Unknown';
-          
-          if (!balances[customerId]) {
-            balances[customerId] = { name: customerName, amount: 0 };
-          }
-          balances[customerId].amount += record.total_amount;
-        });
-
-        paymentData?.forEach(payment => {
-          const customer = Object.entries(balances).find(([_, data]) => data.name === payment.customer_name);
-          if (customer) {
-            customer[1].amount -= payment.amount;
-          }
-        });
-
-        const formattedBalances = Object.entries(balances)
-          .filter(([_, data]) => data.amount > 0)
-          .map(([customerId, data]) => ({
-            customer_id: customerId,
-            customer_name: data.name,
-            pending_amount: data.amount
-          }));
-
-        setCustomerBalances(formattedBalances);
-        return;
-      }
-
-      const formattedBalances = data?.map(balance => ({
-        customer_id: balance.customer_id || '',
-        customer_name: balance.customer_name || 'Unknown',
-        pending_amount: balance.pending_amount || 0
-      })) || [];
-
-      setCustomerBalances(formattedBalances);
-    } catch (error) {
-      console.error('Error loading customer balances:', error);
-      toast({
-        title: "Error",
-        description: "Failed to load customer balances",
-        variant: "destructive"
-      });
-    }
-  };
-
   const loadCustomers = async () => {
     try {
       const { data, error } = await supabase
@@ -162,6 +85,83 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
       setCustomers(data || []);
     } catch (error) {
       console.error('Error loading customers:', error);
+    }
+  };
+
+  const loadCustomerBalances = async () => {
+    try {
+      console.log('Loading customer balances...');
+      
+      // Get all delivery records with customer info
+      const { data: deliveryData, error: deliveryError } = await supabase
+        .from('delivery_records')
+        .select(`
+          customer_id,
+          total_amount,
+          customers(name)
+        `);
+
+      if (deliveryError) {
+        console.error('Error loading delivery data:', deliveryError);
+        throw deliveryError;
+      }
+
+      // Get all payments
+      const { data: paymentData, error: paymentError } = await supabase
+        .from('payments')
+        .select('customer_name, amount');
+
+      if (paymentError) {
+        console.error('Error loading payment data:', paymentError);
+        throw paymentError;
+      }
+
+      console.log('Delivery data:', deliveryData);
+      console.log('Payment data:', paymentData);
+
+      // Calculate balances manually
+      const balances: { [key: string]: { name: string; totalDelivery: number; totalPayments: number } } = {};
+      
+      // Sum up delivery amounts by customer
+      deliveryData?.forEach(record => {
+        const customerId = record.customer_id;
+        const customerName = record.customers?.name || 'Unknown';
+        
+        if (!balances[customerId]) {
+          balances[customerId] = { name: customerName, totalDelivery: 0, totalPayments: 0 };
+        }
+        balances[customerId].totalDelivery += Number(record.total_amount);
+      });
+
+      // Sum up payment amounts by customer name
+      paymentData?.forEach(payment => {
+        const customerName = payment.customer_name;
+        const customerId = Object.keys(balances).find(id => balances[id].name === customerName);
+        
+        if (customerId && balances[customerId]) {
+          balances[customerId].totalPayments += Number(payment.amount);
+        }
+      });
+
+      // Create final balance array with only customers who have pending amounts
+      const formattedBalances = Object.entries(balances)
+        .map(([customerId, data]) => ({
+          customer_id: customerId,
+          customer_name: data.name,
+          pending_amount: data.totalDelivery - data.totalPayments
+        }))
+        .filter(balance => balance.pending_amount > 0);
+
+      console.log('Calculated balances:', formattedBalances);
+      setCustomerBalances(formattedBalances);
+
+    } catch (error) {
+      console.error('Error loading customer balances:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load customer balances",
+        variant: "destructive"
+      });
     }
   };
 
@@ -382,10 +382,12 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
         </Dialog>
       </div>
 
-      {/* Pending Payments Summary */}
+      {/* Outstanding Balances */}
       <Card className="p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Outstanding Balances</h3>
-        {customerBalances.length === 0 ? (
+        {isLoading ? (
+          <p className="text-gray-500">Loading balances...</p>
+        ) : customerBalances.length === 0 ? (
           <p className="text-gray-500">No pending payments found.</p>
         ) : (
           <div className="space-y-3">
