@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -55,12 +56,19 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
   const loadPayments = async () => {
     try {
       setIsLoading(true);
+      console.log('Loading payments...');
+      
       const { data, error } = await supabase
         .from('payments')
         .select('*')
         .order('payment_date', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error loading payments:', error);
+        throw error;
+      }
+      
+      console.log('Loaded payments:', data);
       setPayments(data || []);
     } catch (error) {
       console.error('Error loading payments:', error);
@@ -189,7 +197,9 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
 
     try {
       setIsLoading(true);
+      console.log('Recording payment for:', formData.customerName, 'Amount:', amount);
       
+      // Insert payment record (payments table only uses customer_name, not customer_id)
       const { error: paymentError } = await supabase
         .from('payments')
         .insert({
@@ -204,32 +214,7 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
         throw paymentError;
       }
 
-      // Update customer balance
-      const customer = customers.find(c => c.name === formData.customerName);
-      if (customer) {
-        const { data: existingBalance } = await supabase
-          .from('customer_balances')
-          .select('pending_amount')
-          .eq('customer_id', customer.id)
-          .maybeSingle();
-
-        const newPendingAmount = Math.max(0, Math.ceil((existingBalance?.pending_amount || 0) - amount));
-
-        const { error: balanceError } = await supabase
-          .from('customer_balances')
-          .upsert({
-            customer_id: customer.id,
-            pending_amount: newPendingAmount,
-            updated_at: new Date().toISOString()
-          }, {
-            onConflict: 'customer_id'
-          });
-
-        if (balanceError) {
-          console.error('Balance update error:', balanceError);
-          throw balanceError;
-        }
-      }
+      console.log('Payment recorded successfully');
 
       toast({
         title: "Success",
