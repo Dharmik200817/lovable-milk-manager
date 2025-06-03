@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Plus, Calendar as CalendarIcon, Search, List, Grid } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -49,6 +50,7 @@ export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) =
   const [searchTerm, setSearchTerm] = useState('');
   const [isBulkMode, setIsBulkMode] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [lastDeliveryTime, setLastDeliveryTime] = useState('Morning');
   const [formData, setFormData] = useState({
     customerId: '',
     customerName: '',
@@ -67,13 +69,10 @@ export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) =
     loadMilkTypes();
   }, []);
 
-  // Scroll to highlighted customer when component mounts with highlightCustomerId
   useEffect(() => {
     if (highlightCustomerId && deliveryRecords.length > 0) {
-      // Find records for the highlighted customer
       const customerRecords = deliveryRecords.filter(record => record.customer_id === highlightCustomerId);
       if (customerRecords.length > 0) {
-        // Scroll to first record of this customer
         setTimeout(() => {
           const element = document.getElementById(`customer-record-${highlightCustomerId}`);
           if (element) {
@@ -222,16 +221,6 @@ export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) =
       const totalAmount = Math.ceil(quantityInLiters * price);
       const notesWithTime = `${formData.deliveryTime}${formData.notes ? ` - ${formData.notes}` : ''}`;
 
-      console.log('Submitting delivery record:', {
-        customer_id: formData.customerId,
-        milk_type_id: formData.milkTypeId,
-        quantity: quantityInLiters,
-        price_per_liter: price,
-        total_amount: totalAmount,
-        delivery_date: format(formData.deliveryDate, 'yyyy-MM-dd'),
-        notes: notesWithTime
-      });
-
       const { error: deliveryError } = await supabase
         .from('delivery_records')
         .insert({
@@ -249,7 +238,6 @@ export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) =
         throw deliveryError;
       }
 
-      // Update customer balance
       const { data: existingBalance } = await supabase
         .from('customer_balances')
         .select('pending_amount')
@@ -279,6 +267,9 @@ export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) =
       });
 
       await loadDeliveryRecords();
+      
+      setLastDeliveryTime(formData.deliveryTime);
+      
       setFormData({
         customerId: '',
         customerName: '',
@@ -287,7 +278,7 @@ export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) =
         quantity: '',
         pricePerLiter: '',
         deliveryDate: new Date(),
-        deliveryTime: formData.deliveryTime, // Keep the same delivery time for next entry
+        deliveryTime: formData.deliveryTime,
         notes: ''
       });
       setIsAddDialogOpen(false);
@@ -322,6 +313,25 @@ export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) =
     });
   };
 
+  const handleDeliveryTimeChange = (value: string) => {
+    if (value) {
+      setFormData({
+        ...formData,
+        deliveryTime: value
+      });
+    }
+  };
+
+  const handleDialogOpen = (open: boolean) => {
+    if (open) {
+      setFormData(prev => ({
+        ...prev,
+        deliveryTime: lastDeliveryTime
+      }));
+    }
+    setIsAddDialogOpen(open);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -347,7 +357,7 @@ export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) =
           </div>
         </div>
         
-        <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+        <Dialog open={isAddDialogOpen} onOpenChange={handleDialogOpen}>
           <DialogTrigger asChild>
             <Button className="bg-blue-600 hover:bg-blue-700" disabled={isLoading}>
               <Plus className="h-4 w-4 mr-2" />
@@ -421,18 +431,19 @@ export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) =
 
               <div>
                 <Label>Delivery Time *</Label>
-                <Select 
+                <ToggleGroup 
+                  type="single" 
                   value={formData.deliveryTime} 
-                  onValueChange={(value) => setFormData({ ...formData, deliveryTime: value })}
+                  onValueChange={handleDeliveryTimeChange}
+                  className="grid grid-cols-2 gap-2 mt-2"
                 >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Morning">Morning</SelectItem>
-                    <SelectItem value="Evening">Evening</SelectItem>
-                  </SelectContent>
-                </Select>
+                  <ToggleGroupItem value="Morning" variant="outline" className="w-full">
+                    Morning
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="Evening" variant="outline" className="w-full">
+                    Evening
+                  </ToggleGroupItem>
+                </ToggleGroup>
               </div>
 
               <div>

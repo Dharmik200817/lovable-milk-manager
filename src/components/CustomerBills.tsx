@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar as CalendarIcon, Download } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, getDaysInMonth, startOfMonth, addDays } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -17,32 +17,41 @@ interface Customer {
   address: string;
 }
 
-interface CustomerBill {
-  date: string;
-  milkType: string;
+interface DeliveryRecord {
+  delivery_date: string;
+  notes: string;
   quantity: number;
-  milkTotal: number;
-  groceryItems: { name: string; price: number }[];
-  totalAmount: number;
+  total_amount: number;
+  milk_types: { name: string };
+  grocery_items: { name: string; price: number }[];
 }
 
-interface CustomerBills {
-  [customerId: string]: {
-    customerName: string;
-    bills: CustomerBill[];
+interface MonthlyData {
+  [date: string]: {
+    morning: number;
+    evening: number;
+    morningGrocery: number;
+    eveningGrocery: number;
+    hasDelivery: boolean;
   };
 }
 
 export const CustomerBills = () => {
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [customerBills, setCustomerBills] = useState<CustomerBills>({});
   const [selectedCustomer, setSelectedCustomer] = useState<string>('');
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>();
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [monthlyData, setMonthlyData] = useState<MonthlyData>({});
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     loadCustomers();
-    loadCustomerBills();
   }, []);
+
+  useEffect(() => {
+    if (selectedCustomer) {
+      loadMonthlyData();
+    }
+  }, [selectedCustomer, selectedDate]);
 
   const loadCustomers = async () => {
     try {
@@ -63,112 +72,137 @@ export const CustomerBills = () => {
     }
   };
 
-  const loadCustomerBills = async () => {
+  const loadMonthlyData = async () => {
+    if (!selectedCustomer) return;
+
     try {
+      setIsLoading(true);
+      const startDate = format(startOfMonth(selectedDate), 'yyyy-MM-dd');
+      const endDate = format(addDays(startOfMonth(selectedDate), getDaysInMonth(selectedDate) - 1), 'yyyy-MM-dd');
+
       const { data: deliveryData, error: deliveryError } = await supabase
         .from('delivery_records')
         .select(`
-          *,
-          customers(name, address),
+          delivery_date,
+          notes,
+          quantity,
+          total_amount,
           milk_types(name)
         `)
-        .order('delivery_date', { ascending: false });
+        .eq('customer_id', selectedCustomer)
+        .gte('delivery_date', startDate)
+        .lte('delivery_date', endDate);
 
       if (deliveryError) throw deliveryError;
 
       const { data: groceryData, error: groceryError } = await supabase
         .from('grocery_items')
-        .select('*');
+        .select(`
+          name,
+          price,
+          delivery_records!inner(delivery_date, customer_id)
+        `)
+        .eq('delivery_records.customer_id', selectedCustomer)
+        .gte('delivery_records.delivery_date', startDate)
+        .lte('delivery_records.delivery_date', endDate);
 
       if (groceryError) throw groceryError;
 
-      const bills: CustomerBills = {};
-
+      // Process data into monthly format
+      const monthData: MonthlyData = {};
+      
       deliveryData?.forEach(record => {
-        const customerId = record.customer_id;
-        const customerName = record.customers?.name || 'Unknown';
         const date = record.delivery_date;
-
-        if (!bills[customerId]) {
-          bills[customerId] = {
-            customerName,
-            bills: []
+        const isEvening = record.notes?.toLowerCase().includes('evening');
+        const liters = record.quantity;
+        
+        if (!monthData[date]) {
+          monthData[date] = {
+            morning: 0,
+            evening: 0,
+            morningGrocery: 0,
+            eveningGrocery: 0,
+            hasDelivery: false
           };
         }
-
-        const relatedGroceryItems = groceryData?.filter(
-          item => item.delivery_record_id === record.id
-        ) || [];
-
-        const groceryItems = relatedGroceryItems.map(item => ({
-          name: item.name,
-          price: item.price
-        }));
-
-        const groceryTotal = groceryItems.reduce((sum, item) => sum + item.price, 0);
-        const milkTotal = record.total_amount - groceryTotal;
-
-        bills[customerId].bills.push({
-          date,
-          milkType: record.milk_types?.name || 'Unknown',
-          quantity: Math.round(record.quantity * 1000),
-          milkTotal,
-          groceryItems,
-          totalAmount: record.total_amount
-        });
+        
+        monthData[date].hasDelivery = true;
+        
+        if (isEvening) {
+          monthData[date].evening = liters;
+        } else {
+          monthData[date].morning = liters;
+        }
       });
 
-      setCustomerBills(bills);
+      // Add grocery data
+      groceryData?.forEach(item => {
+        const date = (item as any).delivery_records.delivery_date;
+        if (monthData[date]) {
+          monthData[date].morningGrocery += item.price;
+        }
+      });
+
+      setMonthlyData(monthData);
     } catch (error) {
-      console.error('Error loading customer bills:', error);
+      console.error('Error loading monthly data:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load monthly data",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const generatePDF = async (customerId: string) => {
-    const customerData = customerBills[customerId];
-    if (!customerData) return;
+  const generatePDF = async () => {
+    if (!selectedCustomer) return;
 
-    const customer = customers.find(c => c.id === customerId);
-    const filteredBills = selectedDate 
-      ? customerData.bills.filter(bill => bill.date === format(selectedDate, 'yyyy-MM-dd'))
-      : customerData.bills;
-
-    if (filteredBills.length === 0) {
-      toast({
-        title: "No Bills",
-        description: "No bills found for the selected criteria",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    const totalAmount = filteredBills.reduce((sum, bill) => sum + bill.totalAmount, 0);
+    const customer = customers.find(c => c.id === selectedCustomer);
+    const monthName = format(selectedDate, 'MMMM yyyy');
     
+    let totalMilk = 0;
+    let totalAmount = 0;
+    
+    Object.values(monthlyData).forEach(day => {
+      totalMilk += day.morning + day.evening;
+      totalAmount += day.morningGrocery + day.eveningGrocery;
+    });
+
     const pdfContent = `
-NARMADA DAIRY - CUSTOMER BILL
-===============================
-
-Customer: ${customerData.customerName}
-Address: ${customer?.address || 'N/A'}
-${selectedDate ? `Date: ${format(selectedDate, 'dd/MM/yyyy')}` : 'All Bills'}
-
-BILL DETAILS:
-=============
-
-${filteredBills.map(bill => `
-Date: ${format(new Date(bill.date), 'dd/MM/yyyy')}
-${bill.quantity > 0 ? `Milk: ${bill.milkType} - ${bill.quantity}ml - ₹${bill.milkTotal}` : ''}
-${bill.groceryItems.length > 0 ? `
-Grocery Items:
-${bill.groceryItems.map(item => `  • ${item.name} - ₹${item.price}`).join('\n')}` : ''}
-Bill Total: ₹${bill.totalAmount}
-----------------------------------------
-`).join('')}
-
-GRAND TOTAL: ₹${totalAmount}
-
-Thank you for your business!
-Narmada Dairy
+      NARMADA DAIRY - MONTHLY BILL
+      =============================
+      
+      Customer: ${customer?.name}
+      Address: ${customer?.address || 'N/A'}
+      Month: ${monthName}
+      
+      DAILY BREAKDOWN:
+      ================
+      
+      ${Array.from({ length: getDaysInMonth(selectedDate) }, (_, i) => {
+        const day = i + 1;
+        const dateStr = format(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day), 'yyyy-MM-dd');
+        const dayData = monthlyData[dateStr];
+        
+        if (!dayData?.hasDelivery) {
+          return `${day.toString().padStart(2, '0')}  -    -`;
+        }
+        
+        const morning = dayData.morning > 0 ? (dayData.morning * 1000).toFixed(0) : '-';
+        const evening = dayData.evening > 0 ? (dayData.evening * 1000).toFixed(0) : '-';
+        
+        return `${day.toString().padStart(2, '0')}  ${morning}  ${evening}`;
+      }).join('\n')}
+      
+      SUMMARY:
+      ========
+      Total Milk: ${(totalMilk * 1000).toFixed(0)}ml
+      Total Amount: ₹${totalAmount}
+      
+      Thank you for your business!
+      Narmada Dairy
     `;
 
     const blob = new Blob([pdfContent], { type: 'text/plain' });
@@ -176,7 +210,7 @@ Narmada Dairy
     const a = document.createElement('a');
     a.style.display = 'none';
     a.href = url;
-    a.download = `${customerData.customerName}_Bill_${selectedDate ? format(selectedDate, 'dd-MM-yyyy') : 'All'}.txt`;
+    a.download = `${customer?.name}_${monthName.replace(' ', '_')}.txt`;
     document.body.appendChild(a);
     a.click();
     window.URL.revokeObjectURL(url);
@@ -184,17 +218,70 @@ Narmada Dairy
 
     toast({
       title: "Success",
-      description: "Bill downloaded successfully",
+      description: "Monthly bill downloaded successfully",
     });
   };
 
-  const getFilteredBills = () => {
-    if (!selectedCustomer || !customerBills[selectedCustomer]) return [];
+  const renderCalendarGrid = () => {
+    const daysInMonth = getDaysInMonth(selectedDate);
+    const monthName = format(selectedDate, 'MMMM / yyyy');
     
-    const bills = customerBills[selectedCustomer].bills;
-    if (!selectedDate) return bills;
-    
-    return bills.filter(bill => bill.date === format(selectedDate, 'yyyy-MM-dd'));
+    return (
+      <div className="bg-white rounded-lg overflow-hidden border">
+        {/* Header */}
+        <div className="bg-blue-500 text-white text-center py-3">
+          <h3 className="text-lg font-semibold">{customers.find(c => c.id === selectedCustomer)?.name}</h3>
+          <p className="text-sm">{monthName}</p>
+        </div>
+        
+        {/* Calendar Grid Header */}
+        <div className="grid grid-cols-6 bg-gray-100 text-xs font-medium text-gray-700">
+          <div className="p-2 text-center border-r">Date</div>
+          <div className="p-2 text-center border-r">Morning</div>
+          <div className="p-2 text-center border-r">Evening</div>
+          <div className="p-2 text-center border-r">Date</div>
+          <div className="p-2 text-center border-r">Morning</div>
+          <div className="p-2 text-center">Evening</div>
+        </div>
+        
+        {/* Calendar Grid Body */}
+        <div className="grid grid-cols-6 text-sm">
+          {Array.from({ length: Math.ceil(daysInMonth / 2) }, (_, rowIndex) => {
+            const leftDay = rowIndex * 2 + 1;
+            const rightDay = leftDay + 1;
+            
+            const leftData = monthlyData[format(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), leftDay), 'yyyy-MM-dd')];
+            const rightData = rightDay <= daysInMonth ? monthlyData[format(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), rightDay), 'yyyy-MM-dd')] : null;
+            
+            return (
+              <React.Fragment key={rowIndex}>
+                {/* Left side */}
+                <div className={cn("p-2 text-center border-r border-b", leftData?.hasDelivery ? "bg-blue-50" : "")}>
+                  {leftDay.toString().padStart(2, '0')}
+                </div>
+                <div className="p-2 text-center border-r border-b">
+                  {leftData?.morning > 0 ? (leftData.morning * 1000).toFixed(0) : '-'}
+                </div>
+                <div className="p-2 text-center border-r border-b">
+                  {leftData?.evening > 0 ? (leftData.evening * 1000).toFixed(0) : leftData?.hasDelivery ? 'X' : '-'}
+                </div>
+                
+                {/* Right side */}
+                <div className={cn("p-2 text-center border-r border-b", rightData?.hasDelivery ? "bg-blue-50" : "")}>
+                  {rightDay <= daysInMonth ? rightDay.toString().padStart(2, '0') : '-'}
+                </div>
+                <div className="p-2 text-center border-r border-b">
+                  {rightData?.morning > 0 ? (rightData.morning * 1000).toFixed(0) : (rightDay <= daysInMonth ? '-' : '')}
+                </div>
+                <div className="p-2 text-center border-b">
+                  {rightData?.evening > 0 ? (rightData.evening * 1000).toFixed(0) : (rightData?.hasDelivery ? 'X' : (rightDay <= daysInMonth ? '-' : ''))}
+                </div>
+              </React.Fragment>
+            );
+          })}
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -226,7 +313,7 @@ Narmada Dairy
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Filter by Date (Optional)
+              Select Month
             </label>
             <Popover>
               <PopoverTrigger asChild>
@@ -238,14 +325,14 @@ Narmada Dairy
                   )}
                 >
                   <CalendarIcon className="mr-2 h-4 w-4" />
-                  {selectedDate ? format(selectedDate, "dd/MM/yyyy") : <span>Pick a date</span>}
+                  {selectedDate ? format(selectedDate, "MMMM yyyy") : <span>Pick a month</span>}
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-auto p-0" align="start">
                 <Calendar
                   mode="single"
                   selected={selectedDate}
-                  onSelect={setSelectedDate}
+                  onSelect={(date) => date && setSelectedDate(date)}
                   initialFocus
                 />
               </PopoverContent>
@@ -254,82 +341,28 @@ Narmada Dairy
 
           <div className="flex items-end">
             <Button
-              onClick={() => selectedCustomer && generatePDF(selectedCustomer)}
-              disabled={!selectedCustomer}
+              onClick={generatePDF}
+              disabled={!selectedCustomer || isLoading}
               className="w-full"
             >
               <Download className="h-4 w-4 mr-2" />
-              Download PDF
+              Download Bill
             </Button>
           </div>
         </div>
       </Card>
 
-      {/* Bills Display */}
-      {selectedCustomer && customerBills[selectedCustomer] && (
-        <Card className="p-6">
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xl font-semibold text-gray-900">
-                Bills for {customerBills[selectedCustomer].customerName}
-              </h3>
-              <Button
-                variant="outline"
-                onClick={() => setSelectedDate(undefined)}
-                disabled={!selectedDate}
-              >
-                Clear Date Filter
-              </Button>
-            </div>
-            
-            {getFilteredBills().length === 0 ? (
-              <p className="text-gray-500">No bills found for the selected criteria.</p>
-            ) : (
-              <div className="space-y-3">
-                {getFilteredBills().map((bill, index) => (
-                  <div key={index} className="p-4 bg-gray-50 rounded-lg">
-                    <div className="flex justify-between items-start mb-2">
-                      <h4 className="font-medium text-gray-900">
-                        {format(new Date(bill.date), 'dd/MM/yyyy')}
-                      </h4>
-                      <span className="text-lg font-bold text-green-600">
-                        ₹{bill.totalAmount}
-                      </span>
-                    </div>
-                    
-                    {bill.quantity > 0 && (
-                      <div className="mb-2">
-                        <p className="text-sm text-gray-700">
-                          <strong>Milk:</strong> {bill.milkType} - {bill.quantity}ml 
-                          <span className="text-green-600 ml-2">₹{bill.milkTotal}</span>
-                        </p>
-                      </div>
-                    )}
-                    
-                    {bill.groceryItems.length > 0 && (
-                      <div>
-                        <p className="text-sm font-medium text-gray-700 mb-1">Grocery Items:</p>
-                        <div className="space-y-1">
-                          {bill.groceryItems.map((item, itemIndex) => (
-                            <p key={itemIndex} className="text-sm text-gray-600 ml-2">
-                              • {item.name} - <span className="text-green-600">₹{item.price}</span>
-                            </p>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-                
-                <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-                  <p className="text-lg font-bold text-blue-900">
-                    Total Amount: ₹{getFilteredBills().reduce((sum, bill) => sum + bill.totalAmount, 0)}
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
-        </Card>
+      {/* Monthly Calendar View */}
+      {selectedCustomer && (
+        <div className="flex justify-center">
+          {isLoading ? (
+            <Card className="p-8">
+              <p className="text-center text-gray-500">Loading monthly data...</p>
+            </Card>
+          ) : (
+            renderCalendarGrid()
+          )}
+        </div>
       )}
     </div>
   );

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -7,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Calendar as CalendarIcon, Plus, Trash2, ArrowRight, SkipForward } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -41,7 +41,7 @@ interface BulkEntry {
   pricePerLiter: number;
   groceryItems: GroceryItem[];
   isGroceryOnly: boolean;
-  deliveryTime: 'morning' | 'evening';
+  deliveryTime: 'Morning' | 'Evening';
 }
 
 interface CustomerMemory {
@@ -66,6 +66,7 @@ export const BulkDeliveryEntry = () => {
   const [dateBasedMemory, setDateBasedMemory] = useState<DateBasedMemory>({});
   const [currentCustomerIndex, setCurrentCustomerIndex] = useState(0);
   const [autoSelectMode, setAutoSelectMode] = useState(true);
+  const [lastDeliveryTime, setLastDeliveryTime] = useState<'Morning' | 'Evening'>('Morning');
   const [currentEntry, setCurrentEntry] = useState<BulkEntry>({
     customerId: '',
     customerName: '',
@@ -75,7 +76,7 @@ export const BulkDeliveryEntry = () => {
     pricePerLiter: 0,
     groceryItems: [],
     isGroceryOnly: false,
-    deliveryTime: 'morning'
+    deliveryTime: 'Morning'
   });
   const [isLoading, setIsLoading] = useState(false);
 
@@ -200,7 +201,8 @@ export const BulkDeliveryEntry = () => {
         milkTypeId: memory?.milkTypeId || '',
         milkTypeName: memory?.milkTypeId ? milkTypes.find(m => m.id === memory.milkTypeId)?.name || '' : '',
         quantity: memory?.quantity || 0,
-        pricePerLiter: memory?.milkTypeId ? Math.ceil(milkTypes.find(m => m.id === memory.milkTypeId)?.price_per_liter || 0) : 0
+        pricePerLiter: memory?.milkTypeId ? Math.ceil(milkTypes.find(m => m.id === memory.milkTypeId)?.price_per_liter || 0) : 0,
+        deliveryTime: lastDeliveryTime // Use last delivery time
       });
     } else if (field === 'milkTypeId') {
       const milk = milkTypes.find(m => m.id === value);
@@ -226,6 +228,12 @@ export const BulkDeliveryEntry = () => {
         quantity: value ? 0 : currentEntry.quantity,
         pricePerLiter: value ? 0 : currentEntry.pricePerLiter
       });
+    } else if (field === 'deliveryTime') {
+      setCurrentEntry({ 
+        ...currentEntry, 
+        deliveryTime: value as 'Morning' | 'Evening'
+      });
+      setLastDeliveryTime(value as 'Morning' | 'Evening');
     } else {
       setCurrentEntry({ ...currentEntry, [field]: value });
     }
@@ -444,7 +452,7 @@ export const BulkDeliveryEntry = () => {
         pricePerLiter: 0,
         groceryItems: [],
         isGroceryOnly: false,
-        deliveryTime: 'morning'
+        deliveryTime: lastDeliveryTime // Keep the delivery time for next customer
       });
     }
   };
@@ -462,7 +470,7 @@ export const BulkDeliveryEntry = () => {
       pricePerLiter: 0,
       groceryItems: [],
       isGroceryOnly: false,
-      deliveryTime: 'morning'
+      deliveryTime: lastDeliveryTime // Keep the delivery time
     });
 
     toast({
@@ -583,15 +591,19 @@ export const BulkDeliveryEntry = () => {
         {/* Delivery Time Selection */}
         <div className="mb-4">
           <Label>Delivery Time</Label>
-          <Select value={currentEntry.deliveryTime} onValueChange={(value) => updateEntry('deliveryTime', value as 'morning' | 'evening')}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="morning">Morning</SelectItem>
-              <SelectItem value="evening">Evening</SelectItem>
-            </SelectContent>
-          </Select>
+          <ToggleGroup 
+            type="single" 
+            value={currentEntry.deliveryTime} 
+            onValueChange={(value) => value && updateEntry('deliveryTime', value)}
+            className="grid grid-cols-2 gap-2 mt-2"
+          >
+            <ToggleGroupItem value="Morning" variant="outline" className="w-full">
+              Morning
+            </ToggleGroupItem>
+            <ToggleGroupItem value="Evening" variant="outline" className="w-full">
+              Evening
+            </ToggleGroupItem>
+          </ToggleGroup>
         </div>
 
         {/* Grocery Only Toggle */}
