@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -52,17 +51,6 @@ export const CustomerBills = () => {
   const [clearPasswordDialog, setClearPasswordDialog] = useState(false);
   const [password, setPassword] = useState('');
   const [pendingBalance, setPendingBalance] = useState(0);
-
-  useEffect(() => {
-    loadCustomers();
-  }, []);
-
-  useEffect(() => {
-    if (selectedCustomer) {
-      loadMonthlyData();
-      loadPendingBalance();
-    }
-  }, [selectedCustomer, selectedDate]);
 
   const loadCustomers = async () => {
     try {
@@ -201,6 +189,17 @@ export const CustomerBills = () => {
     }
   };
 
+  useEffect(() => {
+    loadCustomers();
+  }, []);
+
+  useEffect(() => {
+    if (selectedCustomer) {
+      loadMonthlyData();
+      loadPendingBalance();
+    }
+  }, [selectedCustomer, selectedDate]);
+
   const handleClearPayment = async () => {
     if (password !== '123') {
       toast({
@@ -330,67 +329,13 @@ Narmada Dairy
           <p className="text-sm">{monthName}</p>
         </div>
         
-        {/* First Half - Days 1-15 */}
-        <div className="border-b">
-          <div className="grid grid-cols-8 bg-gray-100 text-xs font-medium text-gray-700">
-            <div className="p-2 text-center border-r">Date</div>
-            <div className="p-2 text-center border-r">Morning(ml)</div>
-            <div className="p-2 text-center border-r">Evening(ml)</div>
-            <div className="p-2 text-center border-r">Grocery(₹)</div>
-            <div className="p-2 text-center border-r">Date</div>
-            <div className="p-2 text-center border-r">Morning(ml)</div>
-            <div className="p-2 text-center border-r">Evening(ml)</div>
-            <div className="p-2 text-center">Grocery(₹)</div>
-          </div>
-          
-          <div className="grid grid-cols-8 text-sm">
-            {Array.from({ length: Math.ceil(15 / 2) }, (_, rowIndex) => {
-              const leftDay = rowIndex * 2 + 1;
-              const rightDay = leftDay + 1;
-              
-              const leftData = monthlyData[format(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), leftDay), 'yyyy-MM-dd')];
-              const rightData = rightDay <= 15 ? monthlyData[format(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), rightDay), 'yyyy-MM-dd')] : null;
-              
-              return (
-                <React.Fragment key={rowIndex}>
-                  {/* Left side */}
-                  <div className={cn("p-2 text-center border-r border-b", leftData?.hasDelivery ? "bg-blue-50" : "")}>
-                    {leftDay.toString().padStart(2, '0')}
-                  </div>
-                  <div className="p-2 text-center border-r border-b">
-                    {leftData?.morning > 0 ? (leftData.morning * 1000).toFixed(0) : '-'}
-                  </div>
-                  <div className="p-2 text-center border-r border-b">
-                    {leftData?.evening > 0 ? (leftData.evening * 1000).toFixed(0) : '-'}
-                  </div>
-                  <div className="p-2 text-center border-r border-b">
-                    {leftData ? (leftData.morningGrocery.total + leftData.eveningGrocery.total > 0 ? 
-                      `₹${leftData.morningGrocery.total + leftData.eveningGrocery.total}` : '-') : '-'}
-                  </div>
-                  
-                  {/* Right side */}
-                  <div className={cn("p-2 text-center border-r border-b", rightData?.hasDelivery ? "bg-blue-50" : "")}>
-                    {rightDay <= 15 ? rightDay.toString().padStart(2, '0') : '-'}
-                  </div>
-                  <div className="p-2 text-center border-r border-b">
-                    {rightData?.morning > 0 ? (rightData.morning * 1000).toFixed(0) : rightDay <= 15 ? '-' : ''}
-                  </div>
-                  <div className="p-2 text-center border-r border-b">
-                    {rightData?.evening > 0 ? (rightData.evening * 1000).toFixed(0) : rightDay <= 15 ? '-' : ''}
-                  </div>
-                  <div className="p-2 text-center border-b">
-                    {rightData ? (rightData.morningGrocery.total + rightData.eveningGrocery.total > 0 ? 
-                      `₹${rightData.morningGrocery.total + rightData.eveningGrocery.total}` : '-') : rightDay <= 15 ? '-' : ''}
-                  </div>
-                </React.Fragment>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Second Half - Days 16-31 */}
+        {/* Table with 4-column date layout */}
         <div>
-          <div className="grid grid-cols-8 bg-gray-100 text-xs font-medium text-gray-700">
+          <div className="grid grid-cols-12 bg-gray-100 text-xs font-medium text-gray-700">
+            <div className="p-2 text-center border-r">Date</div>
+            <div className="p-2 text-center border-r">Morning(ml)</div>
+            <div className="p-2 text-center border-r">Evening(ml)</div>
+            <div className="p-2 text-center border-r">Grocery(₹)</div>
             <div className="p-2 text-center border-r">Date</div>
             <div className="p-2 text-center border-r">Morning(ml)</div>
             <div className="p-2 text-center border-r">Evening(ml)</div>
@@ -401,47 +346,36 @@ Narmada Dairy
             <div className="p-2 text-center">Grocery(₹)</div>
           </div>
           
-          <div className="grid grid-cols-8 text-sm">
-            {Array.from({ length: Math.ceil((daysInMonth - 15) / 2) }, (_, rowIndex) => {
-              const leftDay = 16 + rowIndex * 2;
-              const rightDay = leftDay + 1;
-              
-              const leftData = leftDay <= daysInMonth ? monthlyData[format(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), leftDay), 'yyyy-MM-dd')] : null;
-              const rightData = rightDay <= daysInMonth ? monthlyData[format(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), rightDay), 'yyyy-MM-dd')] : null;
-              
-              return (
-                <React.Fragment key={rowIndex}>
-                  {/* Left side */}
-                  <div className={cn("p-2 text-center border-r border-b", leftData?.hasDelivery ? "bg-blue-50" : "")}>
-                    {leftDay <= daysInMonth ? leftDay.toString().padStart(2, '0') : '-'}
-                  </div>
-                  <div className="p-2 text-center border-r border-b">
-                    {leftData?.morning > 0 ? (leftData.morning * 1000).toFixed(0) : leftDay <= daysInMonth ? '-' : ''}
-                  </div>
-                  <div className="p-2 text-center border-r border-b">
-                    {leftData?.evening > 0 ? (leftData.evening * 1000).toFixed(0) : leftDay <= daysInMonth ? '-' : ''}
-                  </div>
-                  <div className="p-2 text-center border-r border-b">
-                    {leftData ? (leftData.morningGrocery.total + leftData.eveningGrocery.total > 0 ? 
-                      `₹${leftData.morningGrocery.total + leftData.eveningGrocery.total}` : '-') : leftDay <= daysInMonth ? '-' : ''}
-                  </div>
-                  
-                  {/* Right side */}
-                  <div className={cn("p-2 text-center border-r border-b", rightData?.hasDelivery ? "bg-blue-50" : "")}>
-                    {rightDay <= daysInMonth ? rightDay.toString().padStart(2, '0') : '-'}
-                  </div>
-                  <div className="p-2 text-center border-r border-b">
-                    {rightData?.morning > 0 ? (rightData.morning * 1000).toFixed(0) : rightDay <= daysInMonth ? '-' : ''}
-                  </div>
-                  <div className="p-2 text-center border-r border-b">
-                    {rightData?.evening > 0 ? (rightData.evening * 1000).toFixed(0) : rightDay <= daysInMonth ? '-' : ''}
-                  </div>
-                  <div className="p-2 text-center border-b">
-                    {rightData ? (rightData.morningGrocery.total + rightData.eveningGrocery.total > 0 ? 
-                      `₹${rightData.morningGrocery.total + rightData.eveningGrocery.total}` : '-') : rightDay <= daysInMonth ? '-' : ''}
-                  </div>
-                </React.Fragment>
-              );
+          <div className="grid grid-cols-12 text-sm">
+            {Array.from({ length: Math.ceil(daysInMonth / 3) }, (_, rowIndex) => {
+              return Array.from({ length: 3 }, (_, colIndex) => {
+                const day = rowIndex * 3 + colIndex + 1;
+                if (day > daysInMonth) return null;
+                
+                const dateStr = format(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day), 'yyyy-MM-dd');
+                const dayData = monthlyData[dateStr];
+                
+                const groceryItems = dayData ? [...dayData.morningGrocery.items, ...dayData.eveningGrocery.items] : [];
+                const groceryTotal = dayData ? dayData.morningGrocery.total + dayData.eveningGrocery.total : 0;
+                const groceryDescription = groceryItems.length > 0 ? groceryItems.map(item => item.name).join(', ') : '';
+                
+                return (
+                  <React.Fragment key={`${rowIndex}-${colIndex}`}>
+                    <div className={cn("p-2 text-center border-r border-b", dayData?.hasDelivery ? "bg-blue-50" : "")}>
+                      {day.toString().padStart(2, '0')}
+                    </div>
+                    <div className="p-2 text-center border-r border-b">
+                      {dayData?.morning > 0 ? (dayData.morning * 1000).toFixed(0) : '-'}
+                    </div>
+                    <div className="p-2 text-center border-r border-b">
+                      {dayData?.evening > 0 ? (dayData.evening * 1000).toFixed(0) : '-'}
+                    </div>
+                    <div className="p-2 text-center border-r border-b" title={groceryDescription}>
+                      {groceryTotal > 0 ? `₹${groceryTotal}` : '-'}
+                    </div>
+                  </React.Fragment>
+                );
+              }).filter(Boolean);
             })}
           </div>
         </div>

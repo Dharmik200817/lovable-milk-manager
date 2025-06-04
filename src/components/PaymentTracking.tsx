@@ -234,6 +234,7 @@ export const PaymentTracking: React.FC<PaymentTrackingProps> = ({ onNavigateToDe
         description: "Incorrect password",
         variant: "destructive"
       });
+      setPassword('');
       return;
     }
 
@@ -247,7 +248,7 @@ export const PaymentTracking: React.FC<PaymentTrackingProps> = ({ onNavigateToDe
 
       toast({
         title: "Success",
-        description: "All payments cleared for this customer"
+        description: `All payments cleared for ${customerName}`
       });
 
       setClearPasswordDialog(null);
