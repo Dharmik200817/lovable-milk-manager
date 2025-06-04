@@ -238,7 +238,7 @@ export const CustomerBills = () => {
                 </div>
                 
                 {/* Right side */}
-                <div className="03\n">
+                <div className="">
                   {rightDay <= daysInMonth ? rightDay.toString().padStart(2, '0') : '-'}
                 </div>
                 <div className="p-2 text-center border-r border-b">
