@@ -8,11 +8,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Plus, Calendar as CalendarIcon, Search, Eye } from 'lucide-react';
+import { Plus, Calendar as CalendarIcon, Eye, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+
+interface Customer {
+  id: string;
+  name: string;
+  address: string;
+}
 
 interface Payment {
   id: string;
@@ -26,49 +32,63 @@ interface Payment {
 interface CustomerBalance {
   customer_id: string;
   customer_name: string;
+  total_delivery: number;
+  total_payments: number;
   pending_amount: number;
 }
 
 interface PaymentTrackingProps {
-  onNavigateToDelivery?: (customerId: string) => void;
+  onNavigateToDelivery?: (customerId?: string) => void;
 }
 
-export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) => {
+export const PaymentTracking: React.FC<PaymentTrackingProps> = ({ onNavigateToDelivery }) => {
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
-  const [customerBalances, setCustomerBalances] = useState<CustomerBalance[]>([]);
-  const [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
+  const [outstandingBalances, setOutstandingBalances] = useState<CustomerBalance[]>([]);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [clearPasswordDialog, setClearPasswordDialog] = useState<string | null>(null);
+  const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
-    customerName: '',
+    customer_name: '',
     amount: '',
-    paymentDate: new Date(),
-    paymentMethod: 'Cash'
+    payment_method: 'Cash',
+    payment_date: new Date()
   });
 
   useEffect(() => {
-    loadPayments();
     loadCustomers();
-    loadCustomerBalances();
+    loadPayments();
+    loadOutstandingBalances();
   }, []);
+
+  const loadCustomers = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('customers')
+        .select('*')
+        .order('name');
+      
+      if (error) throw error;
+      setCustomers(data || []);
+    } catch (error) {
+      console.error('Error loading customers:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load customers",
+        variant: "destructive"
+      });
+    }
+  };
 
   const loadPayments = async () => {
     try {
-      setIsLoading(true);
-      console.log('Loading payments...');
-      
       const { data, error } = await supabase
         .from('payments')
         .select('*')
         .order('payment_date', { ascending: false });
-
-      if (error) {
-        console.error('Error loading payments:', error);
-        throw error;
-      }
       
-      console.log('Loaded payments:', data);
+      if (error) throw error;
       setPayments(data || []);
     } catch (error) {
       console.error('Error loading payments:', error);
@@ -77,119 +97,80 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
         description: "Failed to load payments",
         variant: "destructive"
       });
-    } finally {
-      setIsLoading(false);
     }
   };
 
-  const loadCustomers = async () => {
+  const loadOutstandingBalances = async () => {
     try {
-      const { data, error } = await supabase
-        .from('customers')
-        .select('id, name')
-        .order('name');
-
-      if (error) throw error;
-      setCustomers(data || []);
-    } catch (error) {
-      console.error('Error loading customers:', error);
-    }
-  };
-
-  const loadCustomerBalances = async () => {
-    try {
-      console.log('Loading customer balances...');
+      setIsLoading(true);
       
-      // Get all delivery records with customer info
+      // Load all customers first
+      const { data: customersData, error: customersError } = await supabase
+        .from('customers')
+        .select('id, name');
+      
+      if (customersError) throw customersError;
+      
+      // Load delivery records with customer info
       const { data: deliveryData, error: deliveryError } = await supabase
         .from('delivery_records')
         .select(`
           customer_id,
           total_amount,
-          customers(name)
+          customers!inner(name)
         `);
-
-      if (deliveryError) {
-        console.error('Error loading delivery data:', deliveryError);
-        throw deliveryError;
-      }
-
-      // Get all payments
+      
+      if (deliveryError) throw deliveryError;
+      
+      // Load payments
       const { data: paymentData, error: paymentError } = await supabase
         .from('payments')
         .select('customer_name, amount');
-
-      if (paymentError) {
-        console.error('Error loading payment data:', paymentError);
-        throw paymentError;
-      }
-
-      console.log('Delivery data:', deliveryData);
-      console.log('Payment data:', paymentData);
-
-      // Calculate balances manually
-      const balances: { [key: string]: { name: string; totalDelivery: number; totalPayments: number } } = {};
       
-      // Sum up delivery amounts by customer
-      deliveryData?.forEach(record => {
-        const customerId = record.customer_id;
-        const customerName = record.customers?.name || 'Unknown';
+      if (paymentError) throw paymentError;
+      
+      // Calculate balances for each customer
+      const balances: CustomerBalance[] = [];
+      
+      customersData?.forEach(customer => {
+        const customerDeliveries = deliveryData?.filter(d => d.customer_id === customer.id) || [];
+        const customerPayments = paymentData?.filter(p => p.customer_name === customer.name) || [];
         
-        if (!balances[customerId]) {
-          balances[customerId] = { name: customerName, totalDelivery: 0, totalPayments: 0 };
-        }
-        balances[customerId].totalDelivery += Number(record.total_amount);
-      });
-
-      // Sum up payment amounts by customer name
-      paymentData?.forEach(payment => {
-        const customerName = payment.customer_name;
-        const customerId = Object.keys(balances).find(id => balances[id].name === customerName);
+        const totalDelivery = customerDeliveries.reduce((sum, d) => sum + Number(d.total_amount || 0), 0);
+        const totalPayments = customerPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+        const pendingAmount = totalDelivery - totalPayments;
         
-        if (customerId && balances[customerId]) {
-          balances[customerId].totalPayments += Number(payment.amount);
+        if (pendingAmount > 0) {
+          balances.push({
+            customer_id: customer.id,
+            customer_name: customer.name,
+            total_delivery: totalDelivery,
+            total_payments: totalPayments,
+            pending_amount: pendingAmount
+          });
         }
       });
-
-      // Create final balance array with only customers who have pending amounts
-      const formattedBalances = Object.entries(balances)
-        .map(([customerId, data]) => ({
-          customer_id: customerId,
-          customer_name: data.name,
-          pending_amount: data.totalDelivery - data.totalPayments
-        }))
-        .filter(balance => balance.pending_amount > 0);
-
-      console.log('Calculated balances:', formattedBalances);
-      setCustomerBalances(formattedBalances);
-
+      
+      setOutstandingBalances(balances);
     } catch (error) {
-      console.error('Error loading customer balances:', error);
+      console.error('Error loading outstanding balances:', error);
       toast({
         title: "Error",
-        description: "Failed to load customer balances",
+        description: "Failed to load outstanding balances",
         variant: "destructive"
       });
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!formData.customerName || !formData.amount) {
+    if (!formData.customer_name.trim() || !formData.amount.trim()) {
       toast({
         title: "Error",
-        description: "Please fill in all required fields",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    const amount = parseFloat(formData.amount);
-    if (isNaN(amount) || amount <= 0) {
-      toast({
-        title: "Error",
-        description: "Please enter a valid amount",
+        description: "Customer name and amount are required",
         variant: "destructive"
       });
       return;
@@ -197,45 +178,48 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
 
     try {
       setIsLoading(true);
-      console.log('Recording payment for:', formData.customerName, 'Amount:', amount);
       
-      // Insert payment record (payments table only uses customer_name, not customer_id)
-      const { error: paymentError } = await supabase
+      const { data, error } = await supabase
         .from('payments')
         .insert({
-          customer_name: formData.customerName,
-          amount: Math.ceil(amount),
-          payment_date: format(formData.paymentDate, 'yyyy-MM-dd'),
-          payment_method: formData.paymentMethod
-        });
+          customer_name: formData.customer_name.trim(),
+          amount: parseFloat(formData.amount),
+          payment_method: formData.payment_method,
+          payment_date: format(formData.payment_date, 'yyyy-MM-dd')
+        })
+        .select()
+        .single();
 
-      if (paymentError) {
-        console.error('Payment error:', paymentError);
-        throw paymentError;
+      if (error) {
+        console.error('Payment insertion error:', error);
+        throw error;
       }
 
-      console.log('Payment recorded successfully');
+      console.log('Payment recorded successfully:', data);
 
       toast({
         title: "Success",
         description: "Payment recorded successfully"
       });
 
-      await loadPayments();
-      await loadCustomerBalances();
-      
+      // Reset form
       setFormData({
-        customerName: '',
+        customer_name: '',
         amount: '',
-        paymentDate: new Date(),
-        paymentMethod: 'Cash'
+        payment_method: 'Cash',
+        payment_date: new Date()
       });
+      
       setIsAddDialogOpen(false);
+      
+      // Reload data
+      await loadPayments();
+      await loadOutstandingBalances();
     } catch (error) {
       console.error('Error recording payment:', error);
       toast({
         title: "Error",
-        description: "Failed to record payment. Please try again.",
+        description: "Failed to record payment",
         variant: "destructive"
       });
     } finally {
@@ -243,15 +227,42 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
     }
   };
 
-  const filteredPayments = payments.filter(payment =>
-    payment.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    payment.payment_method.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    payment.payment_date.includes(searchTerm)
-  );
+  const handleClearPayment = async (customerName: string) => {
+    if (password !== '123') {
+      toast({
+        title: "Error",
+        description: "Incorrect password",
+        variant: "destructive"
+      });
+      return;
+    }
 
-  const todaysPayments = payments.filter(payment => 
-    payment.payment_date === format(new Date(), 'yyyy-MM-dd')
-  );
+    try {
+      const { error } = await supabase
+        .from('payments')
+        .delete()
+        .eq('customer_name', customerName);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "All payments cleared for this customer"
+      });
+
+      setClearPasswordDialog(null);
+      setPassword('');
+      await loadPayments();
+      await loadOutstandingBalances();
+    } catch (error) {
+      console.error('Error clearing payments:', error);
+      toast({
+        title: "Error",
+        description: "Failed to clear payments",
+        variant: "destructive"
+      });
+    }
+  };
 
   const handleViewRecords = (customerName: string) => {
     const customer = customers.find(c => c.name === customerName);
@@ -267,24 +278,24 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
         
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
           <DialogTrigger asChild>
-            <Button className="bg-green-600 hover:bg-green-700" disabled={isLoading}>
+            <Button className="bg-green-600 hover:bg-green-700">
               <Plus className="h-4 w-4 mr-2" />
               Record Payment
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>Record Payment</DialogTitle>
+              <DialogTitle>Record New Payment</DialogTitle>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <Label htmlFor="customer">Customer *</Label>
-                <Select value={formData.customerName} onValueChange={(value) => setFormData({ ...formData, customerName: value })} required>
+                <Label htmlFor="customer_name">Customer Name *</Label>
+                <Select value={formData.customer_name} onValueChange={(value) => setFormData({ ...formData, customer_name: value })}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select customer" />
                   </SelectTrigger>
                   <SelectContent>
-                    {customers.map((customer) => (
+                    {customers.map(customer => (
                       <SelectItem key={customer.id} value={customer.name}>
                         {customer.name}
                       </SelectItem>
@@ -298,45 +309,17 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
                 <Input
                   id="amount"
                   type="number"
-                  step="1"
-                  min="0"
+                  step="0.01"
                   value={formData.amount}
                   onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                  placeholder="e.g., 500"
+                  placeholder="Enter payment amount"
                   required
                 />
               </div>
 
               <div>
-                <Label>Payment Date *</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className={cn(
-                        "w-full justify-start text-left font-normal",
-                        !formData.paymentDate && "text-muted-foreground"
-                      )}
-                    >
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {formData.paymentDate ? format(formData.paymentDate, "dd/MM/yyyy") : <span>Pick a date</span>}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={formData.paymentDate}
-                      onSelect={(date) => date && setFormData({ ...formData, paymentDate: date })}
-                      initialFocus
-                      className="p-3 pointer-events-auto"
-                    />
-                  </PopoverContent>
-                </Popover>
-              </div>
-
-              <div>
-                <Label htmlFor="method">Payment Method *</Label>
-                <Select value={formData.paymentMethod} onValueChange={(value) => setFormData({ ...formData, paymentMethod: value })}>
+                <Label htmlFor="payment_method">Payment Method</Label>
+                <Select value={formData.payment_method} onValueChange={(value) => setFormData({ ...formData, payment_method: value })}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -347,6 +330,32 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
                     <SelectItem value="Cheque">Cheque</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div>
+                <Label htmlFor="payment_date">Payment Date</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className={cn(
+                        "w-full justify-start text-left font-normal",
+                        !formData.payment_date && "text-muted-foreground"
+                      )}
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {formData.payment_date ? format(formData.payment_date, "PPP") : <span>Pick a date</span>}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={formData.payment_date}
+                      onSelect={(date) => date && setFormData({ ...formData, payment_date: date })}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
               </div>
 
               <div className="flex gap-2 pt-4">
@@ -368,119 +377,142 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
       </div>
 
       {/* Outstanding Balances */}
-      <Card className="p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Outstanding Balances</h3>
-        {isLoading ? (
-          <p className="text-gray-500">Loading balances...</p>
-        ) : customerBalances.length === 0 ? (
-          <p className="text-gray-500">No pending payments found.</p>
-        ) : (
-          <div className="space-y-3">
-            {customerBalances.map((balance) => (
-              <div key={balance.customer_id} className="flex items-center justify-between p-3 bg-red-50 rounded-lg">
-                <div>
-                  <p className="font-medium text-gray-900">{balance.customer_name}</p>
-                  <p className="text-sm text-gray-600">Pending: ₹{Math.ceil(balance.pending_amount)}</p>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleViewRecords(balance.customer_name)}
-                  className="text-blue-600 hover:text-blue-700"
-                >
-                  <Eye className="h-4 w-4 mr-1" />
-                  View Records
-                </Button>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-
-      {/* Today's Summary */}
-      <Card className="p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Today's Summary</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="text-center">
-            <p className="text-2xl font-bold text-green-600">{todaysPayments.length}</p>
-            <p className="text-sm text-gray-500">Payments Received</p>
-          </div>
-          <div className="text-center">
-            <p className="text-2xl font-bold text-blue-600">
-              ₹{Math.ceil(todaysPayments.reduce((sum, payment) => sum + payment.amount, 0))}
-            </p>
-            <p className="text-sm text-gray-500">Total Amount</p>
-          </div>
-        </div>
-      </Card>
-
-      {/* Search */}
-      <Card className="p-4">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-          <Input
-            placeholder="Search by customer name, payment method, or date..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
-            disabled={isLoading}
-          />
-        </div>
-      </Card>
-
-      {/* Payments Table */}
-      <Card className="overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Date
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Customer
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Amount
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Method
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {isLoading ? (
-                <tr>
-                  <td colSpan={4} className="px-6 py-8 text-center text-gray-500">
-                    Loading payments...
-                  </td>
-                </tr>
-              ) : filteredPayments.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="px-6 py-8 text-center text-gray-500">
-                    No payments found. Record your first payment to get started.
-                  </td>
-                </tr>
-              ) : (
-                filteredPayments.map((payment) => (
-                  <tr key={payment.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {format(new Date(payment.payment_date), 'dd/MM/yyyy')}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {payment.customer_name}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
-                      ₹{Math.ceil(payment.amount)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {payment.payment_method}
-                    </td>
+      <Card>
+        <div className="p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Outstanding Balances</h3>
+          {isLoading ? (
+            <p className="text-center text-gray-500 py-4">Loading outstanding balances...</p>
+          ) : outstandingBalances.length === 0 ? (
+            <p className="text-center text-gray-500 py-4">No outstanding balances found.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2 px-4 font-medium text-gray-900">Customer</th>
+                    <th className="text-right py-2 px-4 font-medium text-gray-900">Total Delivery</th>
+                    <th className="text-right py-2 px-4 font-medium text-gray-900">Total Payments</th>
+                    <th className="text-right py-2 px-4 font-medium text-gray-900">Outstanding</th>
+                    <th className="text-center py-2 px-4 font-medium text-gray-900">Actions</th>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                </thead>
+                <tbody>
+                  {outstandingBalances.map((balance) => (
+                    <tr key={balance.customer_id} className="border-b hover:bg-gray-50">
+                      <td className="py-3 px-4 font-medium">{balance.customer_name}</td>
+                      <td className="py-3 px-4 text-right">₹{balance.total_delivery.toFixed(2)}</td>
+                      <td className="py-3 px-4 text-right">₹{balance.total_payments.toFixed(2)}</td>
+                      <td className="py-3 px-4 text-right font-semibold text-red-600">
+                        ₹{balance.pending_amount.toFixed(2)}
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <div className="flex justify-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleViewRecords(balance.customer_name)}
+                            className="text-blue-600 hover:text-blue-800"
+                          >
+                            <Eye className="h-4 w-4 mr-1" />
+                            View Records
+                          </Button>
+                          
+                          <Dialog open={clearPasswordDialog === balance.customer_name} onOpenChange={(open) => setClearPasswordDialog(open ? balance.customer_name : null)}>
+                            <DialogTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-red-600 hover:text-red-800"
+                              >
+                                <Trash2 className="h-4 w-4 mr-1" />
+                                Clear
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>Clear Payments for {balance.customer_name}</DialogTitle>
+                              </DialogHeader>
+                              <div className="space-y-4">
+                                <p className="text-sm text-gray-600">
+                                  This will clear all payment records for {balance.customer_name}. Enter password to confirm:
+                                </p>
+                                <Input
+                                  type="password"
+                                  placeholder="Enter password"
+                                  value={password}
+                                  onChange={(e) => setPassword(e.target.value)}
+                                />
+                                <div className="flex gap-2">
+                                  <Button 
+                                    onClick={() => handleClearPayment(balance.customer_name)} 
+                                    variant="destructive" 
+                                    className="flex-1"
+                                  >
+                                    Clear Payments
+                                  </Button>
+                                  <Button
+                                    onClick={() => {
+                                      setClearPasswordDialog(null);
+                                      setPassword('');
+                                    }}
+                                    variant="outline"
+                                    className="flex-1"
+                                  >
+                                    Cancel
+                                  </Button>
+                                </div>
+                              </div>
+                            </DialogContent>
+                          </Dialog>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {/* Payment History */}
+      <Card>
+        <div className="p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Payments</h3>
+          {payments.length === 0 ? (
+            <p className="text-center text-gray-500 py-4">No payments recorded yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2 px-4 font-medium text-gray-900">Customer</th>
+                    <th className="text-right py-2 px-4 font-medium text-gray-900">Amount</th>
+                    <th className="text-center py-2 px-4 font-medium text-gray-900">Method</th>
+                    <th className="text-center py-2 px-4 font-medium text-gray-900">Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {payments.map((payment) => (
+                    <tr key={payment.id} className="border-b hover:bg-gray-50">
+                      <td className="py-3 px-4 font-medium">{payment.customer_name}</td>
+                      <td className="py-3 px-4 text-right font-semibold text-green-600">
+                        ₹{Number(payment.amount).toFixed(2)}
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                          {payment.payment_method}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-center text-gray-600">
+                        {format(new Date(payment.payment_date), 'dd MMM yyyy')}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </Card>
     </div>
