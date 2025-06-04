@@ -6,7 +6,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Calendar as CalendarIcon, Download, Eye, Trash2 } from 'lucide-react';
+import { Calendar as CalendarIcon, Download, Trash2 } from 'lucide-react';
 import { format, getDaysInMonth, startOfMonth, addDays } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
@@ -207,6 +207,7 @@ export const CustomerBills = () => {
         description: "Incorrect password",
         variant: "destructive"
       });
+      setPassword('');
       return;
     }
 
@@ -329,55 +330,74 @@ Narmada Dairy
           <p className="text-sm">{monthName}</p>
         </div>
         
-        {/* Table with 4-column date layout */}
-        <div>
-          <div className="grid grid-cols-12 bg-gray-100 text-xs font-medium text-gray-700">
-            <div className="p-2 text-center border-r">Date</div>
-            <div className="p-2 text-center border-r">Morning(ml)</div>
-            <div className="p-2 text-center border-r">Evening(ml)</div>
-            <div className="p-2 text-center border-r">Grocery(₹)</div>
-            <div className="p-2 text-center border-r">Date</div>
-            <div className="p-2 text-center border-r">Morning(ml)</div>
-            <div className="p-2 text-center border-r">Evening(ml)</div>
-            <div className="p-2 text-center border-r">Grocery(₹)</div>
-            <div className="p-2 text-center border-r">Date</div>
-            <div className="p-2 text-center border-r">Morning(ml)</div>
-            <div className="p-2 text-center border-r">Evening(ml)</div>
-            <div className="p-2 text-center">Grocery(₹)</div>
-          </div>
-          
-          <div className="grid grid-cols-12 text-sm">
-            {Array.from({ length: Math.ceil(daysInMonth / 3) }, (_, rowIndex) => {
-              return Array.from({ length: 3 }, (_, colIndex) => {
-                const day = rowIndex * 3 + colIndex + 1;
-                if (day > daysInMonth) return null;
-                
-                const dateStr = format(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day), 'yyyy-MM-dd');
-                const dayData = monthlyData[dateStr];
-                
-                const groceryItems = dayData ? [...dayData.morningGrocery.items, ...dayData.eveningGrocery.items] : [];
-                const groceryTotal = dayData ? dayData.morningGrocery.total + dayData.eveningGrocery.total : 0;
-                const groceryDescription = groceryItems.length > 0 ? groceryItems.map(item => item.name).join(', ') : '';
-                
-                return (
-                  <React.Fragment key={`${rowIndex}-${colIndex}`}>
-                    <div className={cn("p-2 text-center border-r border-b", dayData?.hasDelivery ? "bg-blue-50" : "")}>
-                      {day.toString().padStart(2, '0')}
-                    </div>
-                    <div className="p-2 text-center border-r border-b">
-                      {dayData?.morning > 0 ? (dayData.morning * 1000).toFixed(0) : '-'}
-                    </div>
-                    <div className="p-2 text-center border-r border-b">
-                      {dayData?.evening > 0 ? (dayData.evening * 1000).toFixed(0) : '-'}
-                    </div>
-                    <div className="p-2 text-center border-r border-b" title={groceryDescription}>
-                      {groceryTotal > 0 ? `₹${groceryTotal}` : '-'}
-                    </div>
-                  </React.Fragment>
-                );
-              }).filter(Boolean);
-            })}
-          </div>
+        {/* Table Header */}
+        <div className="grid grid-cols-4 bg-gray-100 text-xs font-medium text-gray-700">
+          <div className="p-2 text-center border-r">Date</div>
+          <div className="p-2 text-center border-r">Morning(ml)</div>
+          <div className="p-2 text-center border-r">Evening(ml)</div>
+          <div className="p-2 text-center">Grocery(₹)</div>
+        </div>
+        
+        {/* First Row: Days 1-15 */}
+        <div className="grid grid-cols-4 text-sm border-b">
+          {Array.from({ length: 15 }, (_, i) => {
+            const day = i + 1;
+            const dateStr = format(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day), 'yyyy-MM-dd');
+            const dayData = monthlyData[dateStr];
+            
+            const groceryItems = dayData ? [...dayData.morningGrocery.items, ...dayData.eveningGrocery.items] : [];
+            const groceryTotal = dayData ? dayData.morningGrocery.total + dayData.eveningGrocery.total : 0;
+            const groceryDescription = groceryItems.length > 0 ? groceryItems.map(item => `${item.name}: ₹${item.price}`).join(', ') : '';
+            
+            return (
+              <div key={day} className="grid grid-cols-4 col-span-4 border-b last:border-b-0">
+                <div className={cn("p-2 text-center border-r", dayData?.hasDelivery ? "bg-blue-50" : "")}>
+                  {day.toString().padStart(2, '0')}
+                </div>
+                <div className="p-2 text-center border-r">
+                  {dayData?.morning > 0 ? (dayData.morning * 1000).toFixed(0) : '-'}
+                </div>
+                <div className="p-2 text-center border-r">
+                  {dayData?.evening > 0 ? (dayData.evening * 1000).toFixed(0) : '-'}
+                </div>
+                <div className="p-2 text-center" title={groceryDescription}>
+                  {groceryTotal > 0 ? `₹${groceryTotal}` : '-'}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Second Row: Days 16-31 */}
+        <div className="grid grid-cols-4 text-sm">
+          {Array.from({ length: Math.max(0, daysInMonth - 15) }, (_, i) => {
+            const day = i + 16;
+            if (day > daysInMonth) return null;
+            
+            const dateStr = format(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day), 'yyyy-MM-dd');
+            const dayData = monthlyData[dateStr];
+            
+            const groceryItems = dayData ? [...dayData.morningGrocery.items, ...dayData.eveningGrocery.items] : [];
+            const groceryTotal = dayData ? dayData.morningGrocery.total + dayData.eveningGrocery.total : 0;
+            const groceryDescription = groceryItems.length > 0 ? groceryItems.map(item => `${item.name}: ₹${item.price}`).join(', ') : '';
+            
+            return (
+              <div key={day} className="grid grid-cols-4 col-span-4 border-b last:border-b-0">
+                <div className={cn("p-2 text-center border-r", dayData?.hasDelivery ? "bg-blue-50" : "")}>
+                  {day.toString().padStart(2, '0')}
+                </div>
+                <div className="p-2 text-center border-r">
+                  {dayData?.morning > 0 ? (dayData.morning * 1000).toFixed(0) : '-'}
+                </div>
+                <div className="p-2 text-center border-r">
+                  {dayData?.evening > 0 ? (dayData.evening * 1000).toFixed(0) : '-'}
+                </div>
+                <div className="p-2 text-center" title={groceryDescription}>
+                  {groceryTotal > 0 ? `₹${groceryTotal}` : '-'}
+                </div>
+              </div>
+            );
+          }).filter(Boolean)}
         </div>
 
         {/* Totals Section */}
@@ -492,6 +512,11 @@ Narmada Dairy
                     placeholder="Enter password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter') {
+                        handleClearPayment();
+                      }
+                    }}
                   />
                   <div className="flex gap-2">
                     <Button onClick={handleClearPayment} variant="destructive" className="flex-1">

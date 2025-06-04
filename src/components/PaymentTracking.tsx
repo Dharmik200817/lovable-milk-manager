@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -239,6 +238,8 @@ export const PaymentTracking: React.FC<PaymentTrackingProps> = ({ onNavigateToDe
     }
 
     try {
+      setIsLoading(true);
+      
       const { error } = await supabase
         .from('payments')
         .delete()
@@ -262,6 +263,8 @@ export const PaymentTracking: React.FC<PaymentTrackingProps> = ({ onNavigateToDe
         description: "Failed to clear payments",
         variant: "destructive"
       });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -418,7 +421,10 @@ export const PaymentTracking: React.FC<PaymentTrackingProps> = ({ onNavigateToDe
                             View Records
                           </Button>
                           
-                          <Dialog open={clearPasswordDialog === balance.customer_name} onOpenChange={(open) => setClearPasswordDialog(open ? balance.customer_name : null)}>
+                          <Dialog open={clearPasswordDialog === balance.customer_name} onOpenChange={(open) => {
+                            setClearPasswordDialog(open ? balance.customer_name : null);
+                            if (!open) setPassword('');
+                          }}>
                             <DialogTrigger asChild>
                               <Button
                                 variant="outline"
@@ -442,14 +448,20 @@ export const PaymentTracking: React.FC<PaymentTrackingProps> = ({ onNavigateToDe
                                   placeholder="Enter password"
                                   value={password}
                                   onChange={(e) => setPassword(e.target.value)}
+                                  onKeyPress={(e) => {
+                                    if (e.key === 'Enter') {
+                                      handleClearPayment(balance.customer_name);
+                                    }
+                                  }}
                                 />
                                 <div className="flex gap-2">
                                   <Button 
                                     onClick={() => handleClearPayment(balance.customer_name)} 
                                     variant="destructive" 
                                     className="flex-1"
+                                    disabled={isLoading}
                                   >
-                                    Clear Payments
+                                    {isLoading ? 'Clearing...' : 'Clear Payments'}
                                   </Button>
                                   <Button
                                     onClick={() => {
@@ -458,6 +470,7 @@ export const PaymentTracking: React.FC<PaymentTrackingProps> = ({ onNavigateToDe
                                     }}
                                     variant="outline"
                                     className="flex-1"
+                                    disabled={isLoading}
                                   >
                                     Cancel
                                   </Button>
