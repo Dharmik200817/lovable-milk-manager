@@ -226,7 +226,7 @@ export const PaymentTracking: React.FC<PaymentTrackingProps> = ({ onNavigateToDe
     }
   };
 
-  const handleClearPayment = async (customerName: string) => {
+  const handleClearPayment = async (customerName: string, pendingAmount: number) => {
     if (password !== '123') {
       toast({
         title: "Error",
@@ -240,16 +240,21 @@ export const PaymentTracking: React.FC<PaymentTrackingProps> = ({ onNavigateToDe
     try {
       setIsLoading(true);
       
+      // Record a payment equal to the pending amount to clear the balance
       const { error } = await supabase
         .from('payments')
-        .delete()
-        .eq('customer_name', customerName);
+        .insert({
+          customer_name: customerName,
+          amount: pendingAmount,
+          payment_method: 'Balance Clear',
+          payment_date: format(new Date(), 'yyyy-MM-dd')
+        });
 
       if (error) throw error;
 
       toast({
         title: "Success",
-        description: `All payments cleared for ${customerName}`
+        description: `Outstanding balance of ₹${pendingAmount.toFixed(2)} cleared for ${customerName}`
       });
 
       setClearPasswordDialog(null);
@@ -257,10 +262,10 @@ export const PaymentTracking: React.FC<PaymentTrackingProps> = ({ onNavigateToDe
       await loadPayments();
       await loadOutstandingBalances();
     } catch (error) {
-      console.error('Error clearing payments:', error);
+      console.error('Error clearing balance:', error);
       toast({
         title: "Error",
-        description: "Failed to clear payments",
+        description: "Failed to clear balance",
         variant: "destructive"
       });
     } finally {
@@ -437,11 +442,11 @@ export const PaymentTracking: React.FC<PaymentTrackingProps> = ({ onNavigateToDe
                             </DialogTrigger>
                             <DialogContent>
                               <DialogHeader>
-                                <DialogTitle>Clear Payments for {balance.customer_name}</DialogTitle>
+                                <DialogTitle>Clear Outstanding Balance for {balance.customer_name}</DialogTitle>
                               </DialogHeader>
                               <div className="space-y-4">
                                 <p className="text-sm text-gray-600">
-                                  This will clear all payment records for {balance.customer_name}. Enter password to confirm:
+                                  This will clear the outstanding balance of ₹{balance.pending_amount.toFixed(2)} for {balance.customer_name} by recording a payment. Enter password to confirm:
                                 </p>
                                 <Input
                                   type="password"
@@ -450,18 +455,18 @@ export const PaymentTracking: React.FC<PaymentTrackingProps> = ({ onNavigateToDe
                                   onChange={(e) => setPassword(e.target.value)}
                                   onKeyPress={(e) => {
                                     if (e.key === 'Enter') {
-                                      handleClearPayment(balance.customer_name);
+                                      handleClearPayment(balance.customer_name, balance.pending_amount);
                                     }
                                   }}
                                 />
                                 <div className="flex gap-2">
                                   <Button 
-                                    onClick={() => handleClearPayment(balance.customer_name)} 
+                                    onClick={() => handleClearPayment(balance.customer_name, balance.pending_amount)} 
                                     variant="destructive" 
                                     className="flex-1"
                                     disabled={isLoading}
                                   >
-                                    {isLoading ? 'Clearing...' : 'Clear Payments'}
+                                    {isLoading ? 'Clearing...' : 'Clear Balance'}
                                   </Button>
                                   <Button
                                     onClick={() => {

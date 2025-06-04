@@ -215,26 +215,38 @@ export const CustomerBills = () => {
       const customer = customers.find(c => c.id === selectedCustomer);
       if (!customer) return;
 
-      const { error } = await supabase
-        .from('payments')
-        .delete()
-        .eq('customer_name', customer.name);
+      // Record a payment equal to the pending balance to clear it
+      if (pendingBalance > 0) {
+        const { error: paymentError } = await supabase
+          .from('payments')
+          .insert({
+            customer_name: customer.name,
+            amount: pendingBalance,
+            payment_method: 'Balance Clear',
+            payment_date: format(new Date(), 'yyyy-MM-dd')
+          });
 
-      if (error) throw error;
+        if (paymentError) throw paymentError;
 
-      toast({
-        title: "Success",
-        description: "All payments cleared for this customer"
-      });
+        toast({
+          title: "Success",
+          description: `Outstanding balance of ₹${pendingBalance.toFixed(2)} cleared for ${customer.name}`
+        });
+      } else {
+        toast({
+          title: "Info",
+          description: "No outstanding balance to clear"
+        });
+      }
 
       setClearPasswordDialog(false);
       setPassword('');
       loadPendingBalance();
     } catch (error) {
-      console.error('Error clearing payments:', error);
+      console.error('Error clearing balance:', error);
       toast({
         title: "Error",
-        description: "Failed to clear payments",
+        description: "Failed to clear balance",
         variant: "destructive"
       });
     }
@@ -323,81 +335,112 @@ Narmada Dairy
     });
 
     return (
-      <div className="bg-white rounded-lg overflow-hidden border">
+      <div className="bg-white rounded-lg overflow-hidden border max-w-6xl">
         {/* Header */}
         <div className="bg-blue-500 text-white text-center py-3">
           <h3 className="text-lg font-semibold">{customers.find(c => c.id === selectedCustomer)?.name}</h3>
           <p className="text-sm">{monthName}</p>
         </div>
         
-        {/* Table Header */}
-        <div className="grid grid-cols-4 bg-gray-100 text-xs font-medium text-gray-700">
-          <div className="p-2 text-center border-r">Date</div>
-          <div className="p-2 text-center border-r">Morning(ml)</div>
-          <div className="p-2 text-center border-r">Evening(ml)</div>
-          <div className="p-2 text-center">Grocery(₹)</div>
-        </div>
-        
-        {/* First Row: Days 1-15 */}
-        <div className="grid grid-cols-4 text-sm border-b">
-          {Array.from({ length: 15 }, (_, i) => {
-            const day = i + 1;
-            const dateStr = format(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day), 'yyyy-MM-dd');
-            const dayData = monthlyData[dateStr];
+        {/* Two Column Layout */}
+        <div className="grid grid-cols-2 gap-4 p-4">
+          {/* Left Column: Days 1-15 */}
+          <div className="space-y-2">
+            <h4 className="text-center font-medium text-gray-700 mb-3">Days 1-15</h4>
             
-            const groceryItems = dayData ? [...dayData.morningGrocery.items, ...dayData.eveningGrocery.items] : [];
-            const groceryTotal = dayData ? dayData.morningGrocery.total + dayData.eveningGrocery.total : 0;
-            const groceryDescription = groceryItems.length > 0 ? groceryItems.map(item => `${item.name}: ₹${item.price}`).join(', ') : '';
+            {/* Table Header */}
+            <div className="grid grid-cols-4 bg-gray-100 text-xs font-medium text-gray-700 rounded-t-lg">
+              <div className="p-2 text-center border-r">Date</div>
+              <div className="p-2 text-center border-r">Morning(ml)</div>
+              <div className="p-2 text-center border-r">Evening(ml)</div>
+              <div className="p-2 text-center">Grocery(₹)</div>
+            </div>
             
-            return (
-              <div key={day} className="grid grid-cols-4 col-span-4 border-b last:border-b-0">
-                <div className={cn("p-2 text-center border-r", dayData?.hasDelivery ? "bg-blue-50" : "")}>
-                  {day.toString().padStart(2, '0')}
-                </div>
-                <div className="p-2 text-center border-r">
-                  {dayData?.morning > 0 ? (dayData.morning * 1000).toFixed(0) : '-'}
-                </div>
-                <div className="p-2 text-center border-r">
-                  {dayData?.evening > 0 ? (dayData.evening * 1000).toFixed(0) : '-'}
-                </div>
-                <div className="p-2 text-center" title={groceryDescription}>
-                  {groceryTotal > 0 ? `₹${groceryTotal}` : '-'}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+            {/* Days 1-15 */}
+            <div className="border border-gray-200 rounded-b-lg">
+              {Array.from({ length: 15 }, (_, i) => {
+                const day = i + 1;
+                const dateStr = format(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day), 'yyyy-MM-dd');
+                const dayData = monthlyData[dateStr];
+                
+                const groceryItems = dayData ? [...dayData.morningGrocery.items, ...dayData.eveningGrocery.items] : [];
+                const groceryTotal = dayData ? dayData.morningGrocery.total + dayData.eveningGrocery.total : 0;
+                const groceryDescription = groceryItems.length > 0 ? groceryItems.map(item => `${item.name}: ₹${item.price}`).join(', ') : '';
+                
+                return (
+                  <div key={day} className="grid grid-cols-4 border-b last:border-b-0 hover:bg-gray-50">
+                    <div className={cn("p-2 text-center border-r text-sm", dayData?.hasDelivery ? "bg-blue-50 font-medium" : "")}>
+                      {day.toString().padStart(2, '0')}
+                    </div>
+                    <div className="p-2 text-center border-r text-sm">
+                      {dayData?.morning > 0 ? (dayData.morning * 1000).toFixed(0) : '-'}
+                    </div>
+                    <div className="p-2 text-center border-r text-sm">
+                      {dayData?.evening > 0 ? (dayData.evening * 1000).toFixed(0) : '-'}
+                    </div>
+                    <div className="p-2 text-center text-sm" title={groceryDescription}>
+                      {groceryTotal > 0 ? `₹${groceryTotal}` : '-'}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
 
-        {/* Second Row: Days 16-31 */}
-        <div className="grid grid-cols-4 text-sm">
-          {Array.from({ length: Math.max(0, daysInMonth - 15) }, (_, i) => {
-            const day = i + 16;
-            if (day > daysInMonth) return null;
+          {/* Right Column: Days 16-31 */}
+          <div className="space-y-2">
+            <h4 className="text-center font-medium text-gray-700 mb-3">Days 16-31</h4>
             
-            const dateStr = format(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day), 'yyyy-MM-dd');
-            const dayData = monthlyData[dateStr];
+            {/* Table Header */}
+            <div className="grid grid-cols-4 bg-gray-100 text-xs font-medium text-gray-700 rounded-t-lg">
+              <div className="p-2 text-center border-r">Date</div>
+              <div className="p-2 text-center border-r">Morning(ml)</div>
+              <div className="p-2 text-center border-r">Evening(ml)</div>
+              <div className="p-2 text-center">Grocery(₹)</div>
+            </div>
             
-            const groceryItems = dayData ? [...dayData.morningGrocery.items, ...dayData.eveningGrocery.items] : [];
-            const groceryTotal = dayData ? dayData.morningGrocery.total + dayData.eveningGrocery.total : 0;
-            const groceryDescription = groceryItems.length > 0 ? groceryItems.map(item => `${item.name}: ₹${item.price}`).join(', ') : '';
-            
-            return (
-              <div key={day} className="grid grid-cols-4 col-span-4 border-b last:border-b-0">
-                <div className={cn("p-2 text-center border-r", dayData?.hasDelivery ? "bg-blue-50" : "")}>
-                  {day.toString().padStart(2, '0')}
+            {/* Days 16-31 */}
+            <div className="border border-gray-200 rounded-b-lg">
+              {Array.from({ length: Math.max(0, daysInMonth - 15) }, (_, i) => {
+                const day = i + 16;
+                if (day > daysInMonth) return null;
+                
+                const dateStr = format(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day), 'yyyy-MM-dd');
+                const dayData = monthlyData[dateStr];
+                
+                const groceryItems = dayData ? [...dayData.morningGrocery.items, ...dayData.eveningGrocery.items] : [];
+                const groceryTotal = dayData ? dayData.morningGrocery.total + dayData.eveningGrocery.total : 0;
+                const groceryDescription = groceryItems.length > 0 ? groceryItems.map(item => `${item.name}: ₹${item.price}`).join(', ') : '';
+                
+                return (
+                  <div key={day} className="grid grid-cols-4 border-b last:border-b-0 hover:bg-gray-50">
+                    <div className={cn("p-2 text-center border-r text-sm", dayData?.hasDelivery ? "bg-blue-50 font-medium" : "")}>
+                      {day.toString().padStart(2, '0')}
+                    </div>
+                    <div className="p-2 text-center border-r text-sm">
+                      {dayData?.morning > 0 ? (dayData.morning * 1000).toFixed(0) : '-'}
+                    </div>
+                    <div className="p-2 text-center border-r text-sm">
+                      {dayData?.evening > 0 ? (dayData.evening * 1000).toFixed(0) : '-'}
+                    </div>
+                    <div className="p-2 text-center text-sm" title={groceryDescription}>
+                      {groceryTotal > 0 ? `₹${groceryTotal}` : '-'}
+                    </div>
+                  </div>
+                );
+              }).filter(Boolean)}
+              
+              {/* Fill empty rows if month has less than 31 days */}
+              {Array.from({ length: Math.max(0, 31 - daysInMonth) }, (_, i) => (
+                <div key={`empty-${i}`} className="grid grid-cols-4 border-b last:border-b-0">
+                  <div className="p-2 text-center border-r text-sm text-gray-300">-</div>
+                  <div className="p-2 text-center border-r text-sm">-</div>
+                  <div className="p-2 text-center border-r text-sm">-</div>
+                  <div className="p-2 text-center text-sm">-</div>
                 </div>
-                <div className="p-2 text-center border-r">
-                  {dayData?.morning > 0 ? (dayData.morning * 1000).toFixed(0) : '-'}
-                </div>
-                <div className="p-2 text-center border-r">
-                  {dayData?.evening > 0 ? (dayData.evening * 1000).toFixed(0) : '-'}
-                </div>
-                <div className="p-2 text-center" title={groceryDescription}>
-                  {groceryTotal > 0 ? `₹${groceryTotal}` : '-'}
-                </div>
-              </div>
-            );
-          }).filter(Boolean)}
+              ))}
+            </div>
+          </div>
         </div>
 
         {/* Totals Section */}
@@ -492,20 +535,20 @@ Narmada Dairy
               <DialogTrigger asChild>
                 <Button
                   variant="destructive"
-                  disabled={!selectedCustomer || isLoading}
+                  disabled={!selectedCustomer || isLoading || pendingBalance <= 0}
                   className="w-full"
                 >
                   <Trash2 className="h-4 w-4 mr-2" />
-                  Clear Payments
+                  Clear Balance
                 </Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>Clear All Payments</DialogTitle>
+                  <DialogTitle>Clear Outstanding Balance</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4">
                   <p className="text-sm text-gray-600">
-                    This will clear all payment records for this customer. Enter password to confirm:
+                    This will clear the outstanding balance of ₹{pendingBalance.toFixed(2)} for this customer by recording a payment. Enter password to confirm:
                   </p>
                   <Input
                     type="password"
@@ -520,7 +563,7 @@ Narmada Dairy
                   />
                   <div className="flex gap-2">
                     <Button onClick={handleClearPayment} variant="destructive" className="flex-1">
-                      Clear Payments
+                      Clear Balance
                     </Button>
                     <Button
                       onClick={() => {
