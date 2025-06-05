@@ -260,11 +260,16 @@ export const CustomerBills = () => {
     
     let totalMilk = 0;
     let totalGroceryAmount = 0;
+    let totalMonthlyAmount = 0;
     
     Object.values(monthlyData).forEach(day => {
       totalMilk += day.morning + day.evening;
       totalGroceryAmount += day.morningGrocery.total + day.eveningGrocery.total;
     });
+
+    // Calculate monthly milk amount (assuming milk price calculation)
+    const milkRate = 60; // Default rate per liter
+    totalMonthlyAmount = (totalMilk * milkRate) + totalGroceryAmount;
 
     const pdfContent = `
 NARMADA DAIRY - MONTHLY BILL
@@ -276,29 +281,32 @@ Month: ${monthName}
 
 DAILY BREAKDOWN:
 ================
-
+Date  Morning  Evening  Grocery
 ${Array.from({ length: getDaysInMonth(selectedDate) }, (_, i) => {
   const day = i + 1;
   const dateStr = format(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day), 'yyyy-MM-dd');
   const dayData = monthlyData[dateStr];
   
   if (!dayData?.hasDelivery) {
-    return `${day.toString().padStart(2, '0')}  -    -    -`;
+    return `${day.toString().padStart(2, '0')}    -        -        -`;
   }
   
-  const morning = dayData.morning > 0 ? (dayData.morning * 1000).toFixed(0) : '-';
-  const evening = dayData.evening > 0 ? (dayData.evening * 1000).toFixed(0) : '-';
+  const morning = dayData.morning > 0 ? `${dayData.morning.toFixed(1)}L` : '-';
+  const evening = dayData.evening > 0 ? `${dayData.evening.toFixed(1)}L` : '-';
   const groceryTotal = dayData.morningGrocery.total + dayData.eveningGrocery.total;
   const grocery = groceryTotal > 0 ? `₹${groceryTotal}` : '-';
   
-  return `${day.toString().padStart(2, '0')}  ${morning}  ${evening}  ${grocery}`;
+  return `${day.toString().padStart(2, '0')}    ${morning.padEnd(8)}${evening.padEnd(9)}${grocery}`;
 }).join('\n')}
 
 SUMMARY:
 ========
-Total Milk: ${(totalMilk * 1000).toFixed(0)}ml
-Total Grocery: ₹${totalGroceryAmount}
-Total Amount: ₹${Object.values(monthlyData).reduce((sum, day) => sum + day.morningGrocery.total + day.eveningGrocery.total, 0)}
+Total Milk: ${totalMilk.toFixed(1)} Liters
+Milk Amount: ₹${(totalMilk * milkRate).toFixed(2)}
+Grocery Amount: ₹${totalGroceryAmount.toFixed(2)}
+Total Monthly Amount: ₹${totalMonthlyAmount.toFixed(2)}
+Previous Balance: ₹${pendingBalance.toFixed(2)}
+Grand Total: ₹${(totalMonthlyAmount + pendingBalance).toFixed(2)}
 
 Thank you for your business!
 Narmada Dairy
@@ -328,11 +336,17 @@ Narmada Dairy
     // Calculate totals
     let totalMilk = 0;
     let totalGrocery = 0;
+    let totalMilkAmount = 0;
+    const milkRate = 60; // Rate per liter
     
     Object.values(monthlyData).forEach(day => {
       totalMilk += day.morning + day.evening;
       totalGrocery += day.morningGrocery.total + day.eveningGrocery.total;
     });
+    
+    totalMilkAmount = totalMilk * milkRate;
+    const totalMonthlyAmount = totalMilkAmount + totalGrocery;
+    const grandTotal = totalMonthlyAmount + pendingBalance;
 
     return (
       <div className="bg-white rounded-lg overflow-hidden border max-w-6xl">
@@ -351,8 +365,8 @@ Narmada Dairy
             {/* Table Header */}
             <div className="grid grid-cols-4 bg-gray-100 text-xs font-medium text-gray-700 rounded-t-lg">
               <div className="p-2 text-center border-r">Date</div>
-              <div className="p-2 text-center border-r">Morning(ml)</div>
-              <div className="p-2 text-center border-r">Evening(ml)</div>
+              <div className="p-2 text-center border-r">Morning(L)</div>
+              <div className="p-2 text-center border-r">Evening(L)</div>
               <div className="p-2 text-center">Grocery(₹)</div>
             </div>
             
@@ -373,10 +387,10 @@ Narmada Dairy
                       {day.toString().padStart(2, '0')}
                     </div>
                     <div className="p-2 text-center border-r text-sm">
-                      {dayData?.morning > 0 ? (dayData.morning * 1000).toFixed(0) : '-'}
+                      {dayData?.morning > 0 ? `${dayData.morning.toFixed(1)}L` : '-'}
                     </div>
                     <div className="p-2 text-center border-r text-sm">
-                      {dayData?.evening > 0 ? (dayData.evening * 1000).toFixed(0) : '-'}
+                      {dayData?.evening > 0 ? `${dayData.evening.toFixed(1)}L` : '-'}
                     </div>
                     <div className="p-2 text-center text-sm" title={groceryDescription}>
                       {groceryTotal > 0 ? `₹${groceryTotal}` : '-'}
@@ -394,8 +408,8 @@ Narmada Dairy
             {/* Table Header */}
             <div className="grid grid-cols-4 bg-gray-100 text-xs font-medium text-gray-700 rounded-t-lg">
               <div className="p-2 text-center border-r">Date</div>
-              <div className="p-2 text-center border-r">Morning(ml)</div>
-              <div className="p-2 text-center border-r">Evening(ml)</div>
+              <div className="p-2 text-center border-r">Morning(L)</div>
+              <div className="p-2 text-center border-r">Evening(L)</div>
               <div className="p-2 text-center">Grocery(₹)</div>
             </div>
             
@@ -418,10 +432,10 @@ Narmada Dairy
                       {day.toString().padStart(2, '0')}
                     </div>
                     <div className="p-2 text-center border-r text-sm">
-                      {dayData?.morning > 0 ? (dayData.morning * 1000).toFixed(0) : '-'}
+                      {dayData?.morning > 0 ? `${dayData.morning.toFixed(1)}L` : '-'}
                     </div>
                     <div className="p-2 text-center border-r text-sm">
-                      {dayData?.evening > 0 ? (dayData.evening * 1000).toFixed(0) : '-'}
+                      {dayData?.evening > 0 ? `${dayData.evening.toFixed(1)}L` : '-'}
                     </div>
                     <div className="p-2 text-center text-sm" title={groceryDescription}>
                       {groceryTotal > 0 ? `₹${groceryTotal}` : '-'}
@@ -443,20 +457,45 @@ Narmada Dairy
           </div>
         </div>
 
-        {/* Totals Section */}
-        <div className="bg-gray-50 p-4 border-t">
-          <div className="grid grid-cols-3 gap-4 text-center">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Total Milk</p>
-              <p className="text-lg font-bold text-blue-600">{(totalMilk * 1000).toFixed(0)} ml</p>
+        {/* Balance Calculations Section */}
+        <div className="bg-gray-50 p-6 border-t">
+          <h3 className="text-lg font-semibold text-gray-800 mb-4 text-center">Monthly Summary & Balance</h3>
+          
+          <div className="grid grid-cols-2 gap-6">
+            {/* Left side - Monthly totals */}
+            <div className="space-y-3">
+              <div className="flex justify-between items-center py-2 border-b border-gray-200">
+                <span className="text-sm font-medium text-gray-600">Total Milk</span>
+                <span className="text-lg font-bold text-blue-600">{totalMilk.toFixed(1)} L</span>
+              </div>
+              <div className="flex justify-between items-center py-2 border-b border-gray-200">
+                <span className="text-sm font-medium text-gray-600">Milk Amount (@₹{milkRate}/L)</span>
+                <span className="text-lg font-bold text-blue-600">₹{totalMilkAmount.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between items-center py-2 border-b border-gray-200">
+                <span className="text-sm font-medium text-gray-600">Grocery Amount</span>
+                <span className="text-lg font-bold text-green-600">₹{totalGrocery.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between items-center py-2 border-b-2 border-gray-400">
+                <span className="text-base font-semibold text-gray-700">Total Monthly Amount</span>
+                <span className="text-xl font-bold text-purple-600">₹{totalMonthlyAmount.toFixed(2)}</span>
+              </div>
             </div>
-            <div>
-              <p className="text-sm font-medium text-gray-600">Total Grocery</p>
-              <p className="text-lg font-bold text-green-600">₹{totalGrocery.toFixed(2)}</p>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-600">Pending Balance</p>
-              <p className="text-lg font-bold text-red-600">₹{pendingBalance.toFixed(2)}</p>
+
+            {/* Right side - Balance calculations */}
+            <div className="space-y-3">
+              <div className="flex justify-between items-center py-2 border-b border-gray-200">
+                <span className="text-sm font-medium text-gray-600">Previous Balance</span>
+                <span className="text-lg font-bold text-red-600">₹{pendingBalance.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between items-center py-2 border-b border-gray-200">
+                <span className="text-sm font-medium text-gray-600">Current Month</span>
+                <span className="text-lg font-bold text-purple-600">₹{totalMonthlyAmount.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between items-center py-3 bg-yellow-50 rounded-lg px-3 border-2 border-yellow-300">
+                <span className="text-lg font-bold text-gray-800">GRAND TOTAL</span>
+                <span className="text-2xl font-bold text-orange-600">₹{grandTotal.toFixed(2)}</span>
+              </div>
             </div>
           </div>
         </div>
