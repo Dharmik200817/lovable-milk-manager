@@ -1,16 +1,44 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CustomerManagement } from '../components/CustomerManagement';
 import { MilkTypesManagement } from '../components/MilkTypesManagement';
 import { DeliveryRecords } from '../components/DeliveryRecords';
 import { PaymentTracking } from '../components/PaymentTracking';
 import { Dashboard } from '../components/Dashboard';
 import { CustomerBills } from '../components/CustomerBills';
-import { Users, Milk, Calendar, CreditCard, Home, Receipt } from 'lucide-react';
+import { Users, Milk, Calendar, CreditCard, Home, Receipt, LogOut } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { Button } from '@/components/ui/button';
+import { useNavigate } from 'react-router-dom';
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [highlightCustomerId, setHighlightCustomerId] = useState<string | undefined>();
+  const { user, signOut, loading } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!loading && !user) {
+      navigate('/auth');
+    }
+  }, [user, loading, navigate]);
+
+  // Show loading while checking authentication
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <Milk className="h-12 w-12 text-blue-600 mx-auto mb-4 animate-spin" />
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Redirect to auth if not authenticated
+  if (!user) {
+    return null;
+  }
 
   const tabs = [
     {
@@ -87,7 +115,19 @@ const Index = () => {
               <Milk className="h-8 w-8 text-blue-600 mr-3" />
               <h1 className="text-2xl font-bold text-gray-900">Narmada dairy Milk Management</h1>
             </div>
-            <div className="text-sm text-gray-500">
+            <div className="flex items-center gap-4">
+              <span className="text-sm text-gray-600">
+                Welcome, {user.email}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={signOut}
+                className="flex items-center gap-2"
+              >
+                <LogOut className="h-4 w-4" />
+                Sign Out
+              </Button>
             </div>
           </div>
         </div>

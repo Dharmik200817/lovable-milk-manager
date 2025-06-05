@@ -31,7 +31,6 @@ interface Payment {
 interface CustomerBalance {
   customer_id: string;
   customer_name: string;
-  total_delivery: number;
   total_payments: number;
   pending_amount: number;
 }
@@ -143,7 +142,6 @@ export const PaymentTracking: React.FC<PaymentTrackingProps> = ({ onNavigateToDe
           balances.push({
             customer_id: customer.id,
             customer_name: customer.name,
-            total_delivery: totalDelivery,
             total_payments: totalPayments,
             pending_amount: pendingAmount
           });
@@ -399,7 +397,6 @@ export const PaymentTracking: React.FC<PaymentTrackingProps> = ({ onNavigateToDe
                 <thead>
                   <tr className="border-b">
                     <th className="text-left py-2 px-4 font-medium text-gray-900">Customer</th>
-                    <th className="text-right py-2 px-4 font-medium text-gray-900">Total Delivery</th>
                     <th className="text-right py-2 px-4 font-medium text-gray-900">Total Payments</th>
                     <th className="text-right py-2 px-4 font-medium text-gray-900">Outstanding</th>
                     <th className="text-center py-2 px-4 font-medium text-gray-900">Actions</th>
@@ -409,7 +406,6 @@ export const PaymentTracking: React.FC<PaymentTrackingProps> = ({ onNavigateToDe
                   {outstandingBalances.map((balance) => (
                     <tr key={balance.customer_id} className="border-b hover:bg-gray-50">
                       <td className="py-3 px-4 font-medium">{balance.customer_name}</td>
-                      <td className="py-3 px-4 text-right">₹{balance.total_delivery.toFixed(2)}</td>
                       <td className="py-3 px-4 text-right">₹{balance.total_payments.toFixed(2)}</td>
                       <td className="py-3 px-4 text-right font-semibold text-red-600">
                         ₹{balance.pending_amount.toFixed(2)}
