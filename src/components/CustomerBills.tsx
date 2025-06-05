@@ -75,27 +75,36 @@ export const CustomerBills = () => {
     if (!selectedCustomer) return;
     
     try {
-      // Calculate total delivery amount
-      const { data: deliveryData, error: deliveryError } = await supabase
+      const customer = customers.find(c => c.id === selectedCustomer);
+      if (!customer) return;
+
+      // Calculate the start of the selected month
+      const currentMonthStart = format(startOfMonth(selectedDate), 'yyyy-MM-dd');
+      
+      // Get all deliveries BEFORE the current month
+      const { data: previousDeliveryData, error: deliveryError } = await supabase
         .from('delivery_records')
         .select('total_amount')
-        .eq('customer_id', selectedCustomer);
+        .eq('customer_id', selectedCustomer)
+        .lt('delivery_date', currentMonthStart);
       
       if (deliveryError) throw deliveryError;
       
-      // Calculate total payments
-      const customer = customers.find(c => c.id === selectedCustomer);
-      const { data: paymentData, error: paymentError } = await supabase
+      // Get all payments BEFORE the current month
+      const { data: previousPaymentData, error: paymentError } = await supabase
         .from('payments')
         .select('amount')
-        .eq('customer_name', customer?.name);
+        .eq('customer_name', customer.name)
+        .lt('payment_date', currentMonthStart);
       
       if (paymentError) throw paymentError;
       
-      const totalDelivery = deliveryData?.reduce((sum, record) => sum + Number(record.total_amount), 0) || 0;
-      const totalPayments = paymentData?.reduce((sum, payment) => sum + Number(payment.amount), 0) || 0;
+      const totalPreviousDelivery = previousDeliveryData?.reduce((sum, record) => sum + Number(record.total_amount), 0) || 0;
+      const totalPreviousPayments = previousPaymentData?.reduce((sum, payment) => sum + Number(payment.amount), 0) || 0;
       
-      setPendingBalance(totalDelivery - totalPayments);
+      // Previous balance is only from transactions before current month
+      const actualPreviousBalance = Math.max(0, totalPreviousDelivery - totalPreviousPayments);
+      setPendingBalance(actualPreviousBalance);
     } catch (error) {
       console.error('Error loading pending balance:', error);
     }
@@ -457,48 +466,52 @@ Narmada Dairy
           </div>
         </div>
 
-        {/* Balance Calculations Section */}
-        <div className="bg-gray-50 p-6 border-t">
-          <h3 className="text-lg font-semibold text-gray-800 mb-4 text-center">Monthly Summary & Balance</h3>
-          
-          <div className="grid grid-cols-2 gap-6">
-            {/* Left side - Monthly totals */}
-            <div className="space-y-3">
-              <div className="flex justify-between items-center py-2 border-b border-gray-200">
-                <span className="text-sm font-medium text-gray-600">Total Milk</span>
-                <span className="text-lg font-bold text-blue-600">{totalMilk.toFixed(1)} L</span>
+        {/* Balance Calculations Section - Only show if there's actual data */}
+        {(totalMonthlyAmount > 0 || pendingBalance > 0) && (
+          <div className="bg-gray-50 p-6 border-t">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4 text-center">Monthly Summary & Balance</h3>
+            
+            <div className="grid grid-cols-2 gap-6">
+              {/* Left side - Monthly totals */}
+              <div className="space-y-3">
+                <div className="flex justify-between items-center py-2 border-b border-gray-200">
+                  <span className="text-sm font-medium text-gray-600">Total Milk</span>
+                  <span className="text-lg font-bold text-blue-600">{totalMilk.toFixed(1)} L</span>
+                </div>
+                <div className="flex justify-between items-center py-2 border-b border-gray-200">
+                  <span className="text-sm font-medium text-gray-600">Milk Amount (@₹{milkRate}/L)</span>
+                  <span className="text-lg font-bold text-blue-600">₹{totalMilkAmount.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between items-center py-2 border-b border-gray-200">
+                  <span className="text-sm font-medium text-gray-600">Grocery Amount</span>
+                  <span className="text-lg font-bold text-green-600">₹{totalGrocery.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between items-center py-2 border-b-2 border-gray-400">
+                  <span className="text-base font-semibold text-gray-700">Total Monthly Amount</span>
+                  <span className="text-xl font-bold text-purple-600">₹{totalMonthlyAmount.toFixed(2)}</span>
+                </div>
               </div>
-              <div className="flex justify-between items-center py-2 border-b border-gray-200">
-                <span className="text-sm font-medium text-gray-600">Milk Amount (@₹{milkRate}/L)</span>
-                <span className="text-lg font-bold text-blue-600">₹{totalMilkAmount.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between items-center py-2 border-b border-gray-200">
-                <span className="text-sm font-medium text-gray-600">Grocery Amount</span>
-                <span className="text-lg font-bold text-green-600">₹{totalGrocery.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between items-center py-2 border-b-2 border-gray-400">
-                <span className="text-base font-semibold text-gray-700">Total Monthly Amount</span>
-                <span className="text-xl font-bold text-purple-600">₹{totalMonthlyAmount.toFixed(2)}</span>
-              </div>
-            </div>
 
-            {/* Right side - Balance calculations */}
-            <div className="space-y-3">
-              <div className="flex justify-between items-center py-2 border-b border-gray-200">
-                <span className="text-sm font-medium text-gray-600">Previous Balance</span>
-                <span className="text-lg font-bold text-red-600">₹{pendingBalance.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between items-center py-2 border-b border-gray-200">
-                <span className="text-sm font-medium text-gray-600">Current Month</span>
-                <span className="text-lg font-bold text-purple-600">₹{totalMonthlyAmount.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between items-center py-3 bg-yellow-50 rounded-lg px-3 border-2 border-yellow-300">
-                <span className="text-lg font-bold text-gray-800">GRAND TOTAL</span>
-                <span className="text-2xl font-bold text-orange-600">₹{grandTotal.toFixed(2)}</span>
+              {/* Right side - Balance calculations */}
+              <div className="space-y-3">
+                {pendingBalance > 0 && (
+                  <div className="flex justify-between items-center py-2 border-b border-gray-200">
+                    <span className="text-sm font-medium text-gray-600">Previous Balance</span>
+                    <span className="text-lg font-bold text-red-600">₹{pendingBalance.toFixed(2)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between items-center py-2 border-b border-gray-200">
+                  <span className="text-sm font-medium text-gray-600">Current Month</span>
+                  <span className="text-lg font-bold text-purple-600">₹{totalMonthlyAmount.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between items-center py-3 bg-yellow-50 rounded-lg px-3 border-2 border-yellow-300">
+                  <span className="text-lg font-bold text-gray-800">GRAND TOTAL</span>
+                  <span className="text-2xl font-bold text-orange-600">₹{grandTotal.toFixed(2)}</span>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     );
   };
