@@ -38,6 +38,8 @@ interface MonthlyData {
     evening: number;
     morningGrocery: { items: Array<{name: string, price: number}>, total: number };
     eveningGrocery: { items: Array<{name: string, price: number}>, total: number };
+    morningMilkAmount: number;
+    eveningMilkAmount: number;
     hasDelivery: boolean;
   };
 }
@@ -125,6 +127,7 @@ export const CustomerBills = () => {
           notes,
           quantity,
           total_amount,
+          price_per_liter,
           milk_types(name)
         `)
         .eq('customer_id', selectedCustomer)
@@ -153,6 +156,7 @@ export const CustomerBills = () => {
         const date = record.delivery_date;
         const isEvening = record.notes?.toLowerCase().includes('evening');
         const liters = record.quantity;
+        const milkAmount = liters * record.price_per_liter;
 
         if (!monthData[date]) {
           monthData[date] = {
@@ -160,6 +164,8 @@ export const CustomerBills = () => {
             evening: 0,
             morningGrocery: { items: [], total: 0 },
             eveningGrocery: { items: [], total: 0 },
+            morningMilkAmount: 0,
+            eveningMilkAmount: 0,
             hasDelivery: false
           };
         }
@@ -167,8 +173,10 @@ export const CustomerBills = () => {
         monthData[date].hasDelivery = true;
         if (isEvening) {
           monthData[date].evening = liters;
+          monthData[date].eveningMilkAmount = milkAmount;
         } else {
           monthData[date].morning = liters;
+          monthData[date].morningMilkAmount = milkAmount;
         }
       });
 
@@ -269,16 +277,15 @@ export const CustomerBills = () => {
     
     let totalMilk = 0;
     let totalGroceryAmount = 0;
-    let totalMonthlyAmount = 0;
+    let totalMilkAmount = 0;
     
     Object.values(monthlyData).forEach(day => {
       totalMilk += day.morning + day.evening;
       totalGroceryAmount += day.morningGrocery.total + day.eveningGrocery.total;
+      totalMilkAmount += day.morningMilkAmount + day.eveningMilkAmount;
     });
 
-    // Calculate monthly milk amount (assuming milk price calculation)
-    const milkRate = 60; // Default rate per liter
-    totalMonthlyAmount = (totalMilk * milkRate) + totalGroceryAmount;
+    const totalMonthlyAmount = totalMilkAmount + totalGroceryAmount;
 
     const pdfContent = `
 NARMADA DAIRY - MONTHLY BILL
@@ -311,7 +318,7 @@ ${Array.from({ length: getDaysInMonth(selectedDate) }, (_, i) => {
 SUMMARY:
 ========
 Total Milk: ${totalMilk.toFixed(1)} Liters
-Milk Amount: ₹${(totalMilk * milkRate).toFixed(2)}
+Milk Amount: ₹${totalMilkAmount.toFixed(2)}
 Grocery Amount: ₹${totalGroceryAmount.toFixed(2)}
 Total Monthly Amount: ₹${totalMonthlyAmount.toFixed(2)}
 Previous Balance: ₹${pendingBalance.toFixed(2)}
@@ -342,18 +349,17 @@ Narmada Dairy
     const daysInMonth = getDaysInMonth(selectedDate);
     const monthName = format(selectedDate, 'MMMM / yyyy');
     
-    // Calculate totals
+    // Calculate totals using actual milk type prices
     let totalMilk = 0;
     let totalGrocery = 0;
     let totalMilkAmount = 0;
-    const milkRate = 60; // Rate per liter
     
     Object.values(monthlyData).forEach(day => {
       totalMilk += day.morning + day.evening;
       totalGrocery += day.morningGrocery.total + day.eveningGrocery.total;
+      totalMilkAmount += day.morningMilkAmount + day.eveningMilkAmount;
     });
     
-    totalMilkAmount = totalMilk * milkRate;
     const totalMonthlyAmount = totalMilkAmount + totalGrocery;
     const grandTotal = totalMonthlyAmount + pendingBalance;
 
@@ -479,7 +485,7 @@ Narmada Dairy
                   <span className="text-lg font-bold text-blue-600">{totalMilk.toFixed(1)} L</span>
                 </div>
                 <div className="flex justify-between items-center py-2 border-b border-gray-200">
-                  <span className="text-sm font-medium text-gray-600">Milk Amount (@₹{milkRate}/L)</span>
+                  <span className="text-sm font-medium text-gray-600">Milk Amount (by milk type rate)</span>
                   <span className="text-lg font-bold text-blue-600">₹{totalMilkAmount.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between items-center py-2 border-b border-gray-200">
