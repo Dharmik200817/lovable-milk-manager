@@ -348,18 +348,18 @@ export const CustomerBills = () => {
       pdf.setFont("helvetica", "bold");
       pdf.text("DAILY BREAKDOWN:", 20, 50);
       
-      // Table headers
+      // Table headers - removed Type column, updated layout
       pdf.setFontSize(10);
       pdf.text("Date", 20, 55);
-      pdf.text("Time", 40, 55);
-      pdf.text("Milk Type", 60, 55); 
-      pdf.text("Qty (L)", 95, 55);
-      pdf.text("Rate", 120, 55);
-      pdf.text("Amount", 145, 55);
-      pdf.text("Grocery", 170, 55);
+      pdf.text("Morning", 40, 55);
+      pdf.text("Evening", 70, 55);
+      pdf.text("Total Qty", 100, 55);
+      pdf.text("Rate", 130, 55);
+      pdf.text("Amount", 155, 55);
+      pdf.text("Grocery", 180, 55);
       
       // Draw header line
-      pdf.line(20, 56, 190, 56);
+      pdf.line(20, 56, 200, 56);
       
       // Table content
       let y = 60;
@@ -370,70 +370,82 @@ export const CustomerBills = () => {
         const dayData = monthlyData[dateStr];
         
         if (dayData?.hasDelivery) {
-          const dayEntries = dayData.entries;
+          // Check if we need a new page
+          if (y > 270) {
+            pdf.addPage();
+            y = 20;
+          }
           
-          // Sort entries by time (Morning first, then Evening)
-          dayEntries.sort((a, b) => {
-            if (a.time === "Morning" && b.time !== "Morning") return -1;
-            if (a.time !== "Morning" && b.time === "Morning") return 1;
-            return 0;
+          // Calculate morning and evening totals
+          let morningQty = 0;
+          let eveningQty = 0;
+          let totalDayAmount = 0;
+          let averageRate = 0;
+          let groceryTotal = 0;
+          let groceryItems: Array<{name: string, price: number, description?: string}> = [];
+          
+          dayData.entries.forEach(entry => {
+            if (entry.time === "Morning") {
+              morningQty += entry.milkQuantity;
+            } else if (entry.time === "Evening") {
+              eveningQty += entry.milkQuantity;
+            }
+            totalDayAmount += entry.milkAmount;
+            groceryTotal += entry.grocery.total;
+            groceryItems.push(...entry.grocery.items);
           });
           
-          // Print each entry for this day
-          dayEntries.forEach((entry, entryIndex) => {
-            // Check if we need a new page
-            if (y > 270) {
-              pdf.addPage();
-              y = 20;
-            }
+          const totalQty = morningQty + eveningQty;
+          if (totalQty > 0) {
+            averageRate = totalDayAmount / totalQty;
+          }
+          
+          // Print the day's summary
+          pdf.setFont("helvetica", "normal");
+          pdf.text(day.toString().padStart(2, '0'), 20, y);
+          pdf.text(morningQty > 0 ? `${morningQty.toFixed(1)}L` : '-', 40, y);
+          pdf.text(eveningQty > 0 ? `${eveningQty.toFixed(1)}L` : '-', 70, y);
+          pdf.text(totalQty > 0 ? `${totalQty.toFixed(1)}L` : '-', 100, y);
+          pdf.text(totalQty > 0 ? `₹${Math.ceil(averageRate)}` : '-', 130, y);
+          pdf.text(totalDayAmount > 0 ? `₹${totalDayAmount.toFixed(2)}` : '-', 155, y);
+          
+          // Grocery items
+          if (groceryItems.length > 0) {
+            pdf.text(`₹${groceryTotal.toFixed(2)}`, 180, y);
             
-            // Print the entry
-            pdf.setFont("helvetica", "normal");
-            pdf.text(day.toString().padStart(2, '0'), 20, y);
-            pdf.text(entry.time, 40, y);
-            pdf.text(entry.milkType, 60, y);
-            pdf.text(entry.milkQuantity.toFixed(1), 95, y);
-            pdf.text(`₹${Math.ceil(entry.milkAmount / entry.milkQuantity)}`, 120, y);
-            pdf.text(`₹${entry.milkAmount.toFixed(2)}`, 145, y);
-            
-            // Grocery items
-            if (entry.grocery.items.length > 0) {
-              pdf.text(`₹${entry.grocery.total.toFixed(2)}`, 170, y);
+            // List grocery items with descriptions on next lines
+            groceryItems.forEach((item, i) => {
+              y += 4;
+              // Check if we need a new page
+              if (y > 270) {
+                pdf.addPage();
+                y = 20;
+              }
               
-              // List grocery items with descriptions on next lines
-              entry.grocery.items.forEach((item, i) => {
-                y += 4;
+              const itemText = `- ${item.name}: ₹${item.price.toFixed(2)}`;
+              pdf.setFontSize(8);
+              pdf.text(itemText, 180, y);
+              
+              // Add description if available
+              if (item.description) {
+                y += 3;
                 // Check if we need a new page
                 if (y > 270) {
                   pdf.addPage();
                   y = 20;
                 }
-                
-                const itemText = `- ${item.name}: ₹${item.price.toFixed(2)}`;
-                pdf.setFontSize(8);
-                pdf.text(itemText, 170, y);
-                
-                // Add description if available
-                if (item.description) {
-                  y += 3;
-                  // Check if we need a new page
-                  if (y > 270) {
-                    pdf.addPage();
-                    y = 20;
-                  }
-                  pdf.setFontSize(7);
-                  pdf.setTextColor(100, 100, 100);
-                  pdf.text(`  (${item.description})`, 170, y);
-                  pdf.setTextColor(0, 0, 0);
-                  pdf.setFontSize(10);
-                }
-              });
-            } else {
-              pdf.text("-", 170, y);
-            }
-            
-            y += 5;
-          });
+                pdf.setFontSize(7);
+                pdf.setTextColor(100, 100, 100);
+                pdf.text(`  (${item.description})`, 180, y);
+                pdf.setTextColor(0, 0, 0);
+                pdf.setFontSize(10);
+              }
+            });
+          } else {
+            pdf.text("-", 180, y);
+          }
+          
+          y += 5;
           
           // Add separator between days
           if (y > 270) {
@@ -441,7 +453,7 @@ export const CustomerBills = () => {
             y = 20;
           }
           pdf.setDrawColor(200, 200, 200);
-          pdf.line(20, y - 2, 190, y - 2);
+          pdf.line(20, y - 2, 200, y - 2);
         }
       }
       
