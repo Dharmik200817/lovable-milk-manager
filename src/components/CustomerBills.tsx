@@ -572,7 +572,7 @@ export const CustomerBills = () => {
           <div className="space-y-2">
             <h4 className="text-center font-medium text-gray-700 mb-3">Days 1-15</h4>
             
-            {/* Table Header */}
+            {/* Table Header - removed Type column */}
             <div className="grid grid-cols-4 bg-gray-100 text-xs font-medium text-gray-700 rounded-t-lg">
               <div className="p-2 text-center border-r">Date</div>
               <div className="p-2 text-center border-r">Time</div>
@@ -586,11 +586,13 @@ export const CustomerBills = () => {
                 const day = i + 1;
                 const dateStr = format(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day), 'yyyy-MM-dd');
                 const dayData = monthlyData[dateStr];
+                const actualDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day);
+                const formattedDate = format(actualDate, 'd MMM');
                 
                 if (!dayData || !dayData.hasDelivery) {
                   return (
                     <div key={day} className="grid grid-cols-4 border-b last:border-b-0">
-                      <div className="p-2 text-center border-r text-sm">{day.toString().padStart(2, '0')}</div>
+                      <div className="p-2 text-center border-r text-sm">{formattedDate}</div>
                       <div className="p-2 text-center border-r text-sm">-</div>
                       <div className="p-2 text-center border-r text-sm">-</div>
                       <div className="p-2 text-center text-sm">-</div>
@@ -598,7 +600,7 @@ export const CustomerBills = () => {
                   );
                 }
                 
-                // Combine entries for same time
+                // Combine entries for same time (merge duplicate entries)
                 const combinedEntries = combineEntriesForTime(dayData.entries);
                 
                 return combinedEntries.map((entry, entryIndex) => {
@@ -627,7 +629,7 @@ export const CustomerBills = () => {
                         "p-2 text-center border-r text-sm",
                         entryIndex === 0 ? "bg-blue-50 font-medium" : "bg-blue-50/30"
                       )}>
-                        {entryIndex === 0 ? day.toString().padStart(2, '0') : ""}
+                        {entryIndex === 0 ? formattedDate : ""}
                       </div>
                       <div className="p-2 text-center border-r text-sm">
                         {entry.time}
@@ -656,7 +658,7 @@ export const CustomerBills = () => {
           <div className="space-y-2">
             <h4 className="text-center font-medium text-gray-700 mb-3">Days 16-31</h4>
             
-            {/* Table Header */}
+            {/* Table Header - removed Type column */}
             <div className="grid grid-cols-4 bg-gray-100 text-xs font-medium text-gray-700 rounded-t-lg">
               <div className="p-2 text-center border-r">Date</div>
               <div className="p-2 text-center border-r">Time</div>
@@ -672,11 +674,13 @@ export const CustomerBills = () => {
                 
                 const dateStr = format(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day), 'yyyy-MM-dd');
                 const dayData = monthlyData[dateStr];
+                const actualDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day);
+                const formattedDate = format(actualDate, 'd MMM');
                 
                 if (!dayData || !dayData.hasDelivery) {
                   return (
                     <div key={day} className="grid grid-cols-4 border-b last:border-b-0">
-                      <div className="p-2 text-center border-r text-sm">{day.toString().padStart(2, '0')}</div>
+                      <div className="p-2 text-center border-r text-sm">{formattedDate}</div>
                       <div className="p-2 text-center border-r text-sm">-</div>
                       <div className="p-2 text-center border-r text-sm">-</div>
                       <div className="p-2 text-center text-sm">-</div>
@@ -684,7 +688,7 @@ export const CustomerBills = () => {
                   );
                 }
                 
-                // Combine entries for same time
+                // Combine entries for same time (merge duplicate entries)
                 const combinedEntries = combineEntriesForTime(dayData.entries);
                 
                 return combinedEntries.map((entry, entryIndex) => {
@@ -713,7 +717,7 @@ export const CustomerBills = () => {
                         "p-2 text-center border-r text-sm",
                         entryIndex === 0 ? "bg-blue-50 font-medium" : "bg-blue-50/30"
                       )}>
-                        {entryIndex === 0 ? day.toString().padStart(2, '0') : ""}
+                        {entryIndex === 0 ? formattedDate : ""}
                       </div>
                       <div className="p-2 text-center border-r text-sm">
                         {entry.time}
