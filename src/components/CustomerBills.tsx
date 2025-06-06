@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -535,6 +534,30 @@ export const CustomerBills = () => {
     const totalMonthlyAmount = totalMilkAmount + totalGroceryAmount;
     const grandTotal = totalMonthlyAmount + pendingBalance;
 
+    // Helper function to combine entries for same time
+    const combineEntriesForTime = (entries: DailyEntry[]) => {
+      const timeGroups: { [time: string]: DailyEntry } = {};
+      
+      entries.forEach(entry => {
+        if (timeGroups[entry.time]) {
+          // Combine quantities and amounts
+          timeGroups[entry.time].milkQuantity += entry.milkQuantity;
+          timeGroups[entry.time].milkAmount += entry.milkAmount;
+          // Combine grocery items
+          timeGroups[entry.time].grocery.items.push(...entry.grocery.items);
+          timeGroups[entry.time].grocery.total += entry.grocery.total;
+        } else {
+          timeGroups[entry.time] = { ...entry };
+        }
+      });
+      
+      return Object.values(timeGroups).sort((a, b) => {
+        if (a.time === "Morning" && b.time !== "Morning") return -1;
+        if (a.time !== "Morning" && b.time === "Morning") return 1;
+        return 0;
+      });
+    };
+
     return (
       <div className="bg-white rounded-lg overflow-hidden border max-w-6xl">
         {/* Header */}
@@ -550,10 +573,9 @@ export const CustomerBills = () => {
             <h4 className="text-center font-medium text-gray-700 mb-3">Days 1-15</h4>
             
             {/* Table Header */}
-            <div className="grid grid-cols-5 bg-gray-100 text-xs font-medium text-gray-700 rounded-t-lg">
+            <div className="grid grid-cols-4 bg-gray-100 text-xs font-medium text-gray-700 rounded-t-lg">
               <div className="p-2 text-center border-r">Date</div>
               <div className="p-2 text-center border-r">Time</div>
-              <div className="p-2 text-center border-r">Type</div>
               <div className="p-2 text-center border-r">Qty(L)</div>
               <div className="p-2 text-center">Grocery(₹)</div>
             </div>
@@ -567,9 +589,8 @@ export const CustomerBills = () => {
                 
                 if (!dayData || !dayData.hasDelivery) {
                   return (
-                    <div key={day} className="grid grid-cols-5 border-b last:border-b-0">
+                    <div key={day} className="grid grid-cols-4 border-b last:border-b-0">
                       <div className="p-2 text-center border-r text-sm">{day.toString().padStart(2, '0')}</div>
-                      <div className="p-2 text-center border-r text-sm">-</div>
                       <div className="p-2 text-center border-r text-sm">-</div>
                       <div className="p-2 text-center border-r text-sm">-</div>
                       <div className="p-2 text-center text-sm">-</div>
@@ -577,14 +598,10 @@ export const CustomerBills = () => {
                   );
                 }
                 
-                // Sort entries by time (Morning first, then Evening)
-                const sortedEntries = [...dayData.entries].sort((a, b) => {
-                  if (a.time === "Morning" && b.time !== "Morning") return -1;
-                  if (a.time !== "Morning" && b.time === "Morning") return 1;
-                  return 0;
-                });
+                // Combine entries for same time
+                const combinedEntries = combineEntriesForTime(dayData.entries);
                 
-                return sortedEntries.map((entry, entryIndex) => {
+                return combinedEntries.map((entry, entryIndex) => {
                   // Create tooltip content for grocery items
                   const groceryItems = entry.grocery.items;
                   const groceryTotal = entry.grocery.total;
@@ -602,7 +619,7 @@ export const CustomerBills = () => {
                     <div 
                       key={`${day}-${entryIndex}`} 
                       className={cn(
-                        "grid grid-cols-5 border-b last:border-b-0 hover:bg-gray-50",
+                        "grid grid-cols-4 border-b last:border-b-0 hover:bg-gray-50",
                         entryIndex > 0 ? "border-t border-dashed border-gray-200" : ""
                       )}
                     >
@@ -616,9 +633,6 @@ export const CustomerBills = () => {
                         {entry.time}
                       </div>
                       <div className="p-2 text-center border-r text-sm">
-                        {entry.milkType}
-                      </div>
-                      <div className="p-2 text-center border-r text-sm">
                         {entry.milkQuantity > 0 ? `${entry.milkQuantity.toFixed(1)}` : '-'}
                       </div>
                       <div 
@@ -628,18 +642,6 @@ export const CustomerBills = () => {
                         {groceryTotal > 0 ? (
                           <div className="cursor-help">
                             ₹{groceryTotal.toFixed(2)}
-                            {groceryItems.length > 0 && (
-                              <div className="hidden group-hover:block absolute bg-white p-2 shadow-md rounded text-left z-10">
-                                {groceryItems.map((item, i) => (
-                                  <div key={i} className="text-xs">
-                                    {item.name}: ₹{item.price.toFixed(2)}
-                                    {item.description && (
-                                      <div className="text-gray-500 text-xs ml-2">{item.description}</div>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
                           </div>
                         ) : '-'}
                       </div>
@@ -655,10 +657,9 @@ export const CustomerBills = () => {
             <h4 className="text-center font-medium text-gray-700 mb-3">Days 16-31</h4>
             
             {/* Table Header */}
-            <div className="grid grid-cols-5 bg-gray-100 text-xs font-medium text-gray-700 rounded-t-lg">
+            <div className="grid grid-cols-4 bg-gray-100 text-xs font-medium text-gray-700 rounded-t-lg">
               <div className="p-2 text-center border-r">Date</div>
               <div className="p-2 text-center border-r">Time</div>
-              <div className="p-2 text-center border-r">Type</div>
               <div className="p-2 text-center border-r">Qty(L)</div>
               <div className="p-2 text-center">Grocery(₹)</div>
             </div>
@@ -674,9 +675,8 @@ export const CustomerBills = () => {
                 
                 if (!dayData || !dayData.hasDelivery) {
                   return (
-                    <div key={day} className="grid grid-cols-5 border-b last:border-b-0">
+                    <div key={day} className="grid grid-cols-4 border-b last:border-b-0">
                       <div className="p-2 text-center border-r text-sm">{day.toString().padStart(2, '0')}</div>
-                      <div className="p-2 text-center border-r text-sm">-</div>
                       <div className="p-2 text-center border-r text-sm">-</div>
                       <div className="p-2 text-center border-r text-sm">-</div>
                       <div className="p-2 text-center text-sm">-</div>
@@ -684,14 +684,10 @@ export const CustomerBills = () => {
                   );
                 }
                 
-                // Sort entries by time (Morning first, then Evening)
-                const sortedEntries = [...dayData.entries].sort((a, b) => {
-                  if (a.time === "Morning" && b.time !== "Morning") return -1;
-                  if (a.time !== "Morning" && b.time === "Morning") return 1;
-                  return 0;
-                });
+                // Combine entries for same time
+                const combinedEntries = combineEntriesForTime(dayData.entries);
                 
-                return sortedEntries.map((entry, entryIndex) => {
+                return combinedEntries.map((entry, entryIndex) => {
                   // Create tooltip content for grocery items
                   const groceryItems = entry.grocery.items;
                   const groceryTotal = entry.grocery.total;
@@ -709,7 +705,7 @@ export const CustomerBills = () => {
                     <div 
                       key={`${day}-${entryIndex}`} 
                       className={cn(
-                        "grid grid-cols-5 border-b last:border-b-0 hover:bg-gray-50",
+                        "grid grid-cols-4 border-b last:border-b-0 hover:bg-gray-50",
                         entryIndex > 0 ? "border-t border-dashed border-gray-200" : ""
                       )}
                     >
@@ -723,9 +719,6 @@ export const CustomerBills = () => {
                         {entry.time}
                       </div>
                       <div className="p-2 text-center border-r text-sm">
-                        {entry.milkType}
-                      </div>
-                      <div className="p-2 text-center border-r text-sm">
                         {entry.milkQuantity > 0 ? `${entry.milkQuantity.toFixed(1)}` : '-'}
                       </div>
                       <div 
@@ -735,18 +728,6 @@ export const CustomerBills = () => {
                         {groceryTotal > 0 ? (
                           <div className="cursor-help">
                             ₹{groceryTotal.toFixed(2)}
-                            {groceryItems.length > 0 && (
-                              <div className="hidden group-hover:block absolute bg-white p-2 shadow-md rounded text-left z-10">
-                                {groceryItems.map((item, i) => (
-                                  <div key={i} className="text-xs">
-                                    {item.name}: ₹{item.price.toFixed(2)}
-                                    {item.description && (
-                                      <div className="text-gray-500 text-xs ml-2">{item.description}</div>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
                           </div>
                         ) : '-'}
                       </div>
@@ -757,9 +738,8 @@ export const CustomerBills = () => {
               
               {/* Fill empty rows if month has less than 31 days */}
               {Array.from({ length: Math.max(0, 31 - daysInMonth) }, (_, i) => (
-                <div key={`empty-${i}`} className="grid grid-cols-5 border-b last:border-b-0">
+                <div key={`empty-${i}`} className="grid grid-cols-4 border-b last:border-b-0">
                   <div className="p-2 text-center border-r text-sm text-gray-300">-</div>
-                  <div className="p-2 text-center border-r text-sm">-</div>
                   <div className="p-2 text-center border-r text-sm">-</div>
                   <div className="p-2 text-center border-r text-sm">-</div>
                   <div className="p-2 text-center text-sm">-</div>
@@ -782,7 +762,7 @@ export const CustomerBills = () => {
                   <span className="text-lg font-bold text-blue-600">{totalMilk.toFixed(1)} L</span>
                 </div>
                 <div className="flex justify-between items-center py-2 border-b border-gray-200">
-                  <span className="text-sm font-medium text-gray-600">Milk Amount (by milk type rate)</span>
+                  <span className="text-sm font-medium text-gray-600">Milk Amount</span>
                   <span className="text-lg font-bold text-blue-600">₹{totalMilkAmount.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between items-center py-2 border-b border-gray-200">
