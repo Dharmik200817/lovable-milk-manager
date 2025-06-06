@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -6,11 +7,12 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Calendar as CalendarIcon, Download, Trash2 } from 'lucide-react';
+import { Calendar as CalendarIcon, Download, Trash2, FileText } from 'lucide-react';
 import { format, getDaysInMonth, startOfMonth, addDays } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import jsPDF from 'jspdf';
 
 interface Customer {
   id: string;
@@ -19,27 +21,40 @@ interface Customer {
 }
 
 interface DeliveryRecord {
+  id: string;
   delivery_date: string;
   notes: string;
   quantity: number;
   total_amount: number;
+  price_per_liter: number;
   milk_types: {
     name: string;
   };
-  grocery_items: {
+  grocery_items?: {
     name: string;
     price: number;
+    description: string;
   }[];
+}
+
+interface DailyEntry {
+  id: string;
+  time: string; // "Morning" or "Evening" or specific time
+  milkQuantity: number;
+  milkAmount: number;
+  milkType: string;
+  grocery: { 
+    items: Array<{name: string, price: number, description?: string}>;
+    total: number;
+  };
 }
 
 interface MonthlyData {
   [date: string]: {
-    morning: number;
-    evening: number;
-    morningGrocery: { items: Array<{name: string, price: number}>, total: number };
-    eveningGrocery: { items: Array<{name: string, price: number}>, total: number };
-    morningMilkAmount: number;
-    eveningMilkAmount: number;
+    entries: DailyEntry[];
+    totalMilkQuantity: number;
+    totalMilkAmount: number;
+    totalGroceryAmount: number;
     hasDelivery: boolean;
   };
 }
@@ -120,9 +135,11 @@ export const CustomerBills = () => {
       const startDate = format(startOfMonth(selectedDate), 'yyyy-MM-dd');
       const endDate = format(addDays(startOfMonth(selectedDate), getDaysInMonth(selectedDate) - 1), 'yyyy-MM-dd');
 
+      // Get all delivery records for this customer in the selected month
       const { data: deliveryData, error: deliveryError } = await supabase
         .from('delivery_records')
         .select(`
+          id,
           delivery_date,
           notes,
           quantity,
@@ -136,12 +153,14 @@ export const CustomerBills = () => {
 
       if (deliveryError) throw deliveryError;
 
+      // Get all grocery items for these delivery records
       const { data: groceryData, error: groceryError } = await supabase
         .from('grocery_items')
         .select(`
           name,
           price,
-          delivery_records!inner(delivery_date, customer_id)
+          description,
+          delivery_records!inner(id, delivery_date, customer_id)
         `)
         .eq('delivery_records.customer_id', selectedCustomer)
         .gte('delivery_records.delivery_date', startDate)
@@ -149,47 +168,64 @@ export const CustomerBills = () => {
 
       if (groceryError) throw groceryError;
 
-      // Process data into monthly format
+      // Process data into monthly format with multiple entries per day
       const monthData: MonthlyData = {};
 
+      // First process all delivery records
       deliveryData?.forEach(record => {
         const date = record.delivery_date;
-        const isEvening = record.notes?.toLowerCase().includes('evening');
-        const liters = record.quantity;
-        const milkAmount = liters * record.price_per_liter;
-
+        const entryTime = record.notes?.toLowerCase().includes('evening') ? 'Evening' : 'Morning';
+        const milkQuantity = record.quantity;
+        const milkAmount = record.quantity * record.price_per_liter;
+        
         if (!monthData[date]) {
           monthData[date] = {
-            morning: 0,
-            evening: 0,
-            morningGrocery: { items: [], total: 0 },
-            eveningGrocery: { items: [], total: 0 },
-            morningMilkAmount: 0,
-            eveningMilkAmount: 0,
-            hasDelivery: false
+            entries: [],
+            totalMilkQuantity: 0,
+            totalMilkAmount: 0,
+            totalGroceryAmount: 0,
+            hasDelivery: true
           };
         }
 
-        monthData[date].hasDelivery = true;
-        if (isEvening) {
-          monthData[date].evening = liters;
-          monthData[date].eveningMilkAmount = milkAmount;
-        } else {
-          monthData[date].morning = liters;
-          monthData[date].morningMilkAmount = milkAmount;
-        }
+        // Add this entry to the day's entries
+        monthData[date].entries.push({
+          id: record.id,
+          time: entryTime,
+          milkQuantity: milkQuantity,
+          milkAmount: milkAmount,
+          milkType: record.milk_types?.name || 'Unknown',
+          grocery: {
+            items: [],
+            total: 0
+          }
+        });
+
+        // Update daily totals
+        monthData[date].totalMilkQuantity += milkQuantity;
+        monthData[date].totalMilkAmount += milkAmount;
       });
 
-      // Add grocery data
+      // Now add grocery items to their respective entries
       groceryData?.forEach(item => {
-        const date = (item as any).delivery_records.delivery_date;
-        if (monthData[date]) {
-          // For now, add to morning grocery (we could enhance this to track timing)
-          monthData[date].morningGrocery.items.push({
-            name: item.name,
-            price: item.price
-          });
-          monthData[date].morningGrocery.total += item.price;
+        const deliveryId = (item as any).delivery_records.id;
+        const deliveryDate = (item as any).delivery_records.delivery_date;
+        
+        if (monthData[deliveryDate]) {
+          // Find the correct entry for this grocery item
+          const entry = monthData[deliveryDate].entries.find(e => e.id === deliveryId);
+          
+          if (entry) {
+            entry.grocery.items.push({
+              name: item.name,
+              price: item.price,
+              description: item.description || ''
+            });
+            entry.grocery.total += item.price;
+            
+            // Update daily totals
+            monthData[deliveryDate].totalGroceryAmount += item.price;
+          }
         }
       });
 
@@ -272,95 +308,219 @@ export const CustomerBills = () => {
   const generatePDF = async () => {
     if (!selectedCustomer) return;
 
-    const customer = customers.find(c => c.id === selectedCustomer);
-    const monthName = format(selectedDate, 'MMMM yyyy');
-    
-    let totalMilk = 0;
-    let totalGroceryAmount = 0;
-    let totalMilkAmount = 0;
-    
-    Object.values(monthlyData).forEach(day => {
-      totalMilk += day.morning + day.evening;
-      totalGroceryAmount += day.morningGrocery.total + day.eveningGrocery.total;
-      totalMilkAmount += day.morningMilkAmount + day.eveningMilkAmount;
-    });
-
-    const totalMonthlyAmount = totalMilkAmount + totalGroceryAmount;
-
-    const pdfContent = `
-NARMADA DAIRY - MONTHLY BILL
-=============================
-
-Customer: ${customer?.name}
-Address: ${customer?.address || 'N/A'}
-Month: ${monthName}
-
-DAILY BREAKDOWN:
-================
-Date  Morning  Evening  Grocery
-${Array.from({ length: getDaysInMonth(selectedDate) }, (_, i) => {
-  const day = i + 1;
-  const dateStr = format(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day), 'yyyy-MM-dd');
-  const dayData = monthlyData[dateStr];
-  
-  if (!dayData?.hasDelivery) {
-    return `${day.toString().padStart(2, '0')}    -        -        -`;
-  }
-  
-  const morning = dayData.morning > 0 ? `${dayData.morning.toFixed(1)}L` : '-';
-  const evening = dayData.evening > 0 ? `${dayData.evening.toFixed(1)}L` : '-';
-  const groceryTotal = dayData.morningGrocery.total + dayData.eveningGrocery.total;
-  const grocery = groceryTotal > 0 ? `₹${groceryTotal}` : '-';
-  
-  return `${day.toString().padStart(2, '0')}    ${morning.padEnd(8)}${evening.padEnd(9)}${grocery}`;
-}).join('\n')}
-
-SUMMARY:
-========
-Total Milk: ${totalMilk.toFixed(1)} Liters
-Milk Amount: ₹${totalMilkAmount.toFixed(2)}
-Grocery Amount: ₹${totalGroceryAmount.toFixed(2)}
-Total Monthly Amount: ₹${totalMonthlyAmount.toFixed(2)}
-Previous Balance: ₹${pendingBalance.toFixed(2)}
-Grand Total: ₹${(totalMonthlyAmount + pendingBalance).toFixed(2)}
-
-Thank you for your business!
-Narmada Dairy
-    `;
-
-    const blob = new Blob([pdfContent], { type: 'text/plain' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.style.display = 'none';
-    a.href = url;
-    a.download = `${customer?.name}_${monthName.replace(' ', '_')}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    window.URL.revokeObjectURL(url);
-    document.body.removeChild(a);
-
-    toast({
-      title: "Success",
-      description: "Monthly bill downloaded successfully"
-    });
+    try {
+      const customer = customers.find(c => c.id === selectedCustomer);
+      if (!customer) return;
+      
+      const monthName = format(selectedDate, 'MMMM yyyy');
+      
+      // Calculate totals for the month
+      let totalMilk = 0;
+      let totalGroceryAmount = 0;
+      let totalMilkAmount = 0;
+      
+      Object.values(monthlyData).forEach(day => {
+        totalMilk += day.totalMilkQuantity;
+        totalGroceryAmount += day.totalGroceryAmount;
+        totalMilkAmount += day.totalMilkAmount;
+      });
+      
+      const totalMonthlyAmount = totalMilkAmount + totalGroceryAmount;
+      const grandTotal = totalMonthlyAmount + pendingBalance;
+      
+      // Create PDF document
+      const pdf = new jsPDF();
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      
+      // Set font styles
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(16);
+      
+      // Header
+      pdf.text("NARMADA DAIRY - MONTHLY BILL", pageWidth / 2, 20, { align: "center" });
+      
+      pdf.setFontSize(12);
+      pdf.setFont("helvetica", "normal");
+      pdf.text(`Customer: ${customer.name}`, 20, 30);
+      pdf.text(`Address: ${customer.address || 'N/A'}`, 20, 35);
+      pdf.text(`Month: ${monthName}`, 20, 40);
+      
+      pdf.setFont("helvetica", "bold");
+      pdf.text("DAILY BREAKDOWN:", 20, 50);
+      
+      // Table headers
+      pdf.setFontSize(10);
+      pdf.text("Date", 20, 55);
+      pdf.text("Time", 40, 55);
+      pdf.text("Milk Type", 60, 55); 
+      pdf.text("Qty (L)", 95, 55);
+      pdf.text("Rate", 120, 55);
+      pdf.text("Amount", 145, 55);
+      pdf.text("Grocery", 170, 55);
+      
+      // Draw header line
+      pdf.line(20, 56, 190, 56);
+      
+      // Table content
+      let y = 60;
+      const daysInMonth = getDaysInMonth(selectedDate);
+      
+      for (let day = 1; day <= daysInMonth; day++) {
+        const dateStr = format(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day), 'yyyy-MM-dd');
+        const dayData = monthlyData[dateStr];
+        
+        if (dayData?.hasDelivery) {
+          const dayEntries = dayData.entries;
+          
+          // Sort entries by time (Morning first, then Evening)
+          dayEntries.sort((a, b) => {
+            if (a.time === "Morning" && b.time !== "Morning") return -1;
+            if (a.time !== "Morning" && b.time === "Morning") return 1;
+            return 0;
+          });
+          
+          // Print each entry for this day
+          dayEntries.forEach((entry, entryIndex) => {
+            // Check if we need a new page
+            if (y > 270) {
+              pdf.addPage();
+              y = 20;
+            }
+            
+            // Print the entry
+            pdf.setFont("helvetica", "normal");
+            pdf.text(day.toString().padStart(2, '0'), 20, y);
+            pdf.text(entry.time, 40, y);
+            pdf.text(entry.milkType, 60, y);
+            pdf.text(entry.milkQuantity.toFixed(1), 95, y);
+            pdf.text(`₹${Math.ceil(entry.milkAmount / entry.milkQuantity)}`, 120, y);
+            pdf.text(`₹${entry.milkAmount.toFixed(2)}`, 145, y);
+            
+            // Grocery items
+            if (entry.grocery.items.length > 0) {
+              pdf.text(`₹${entry.grocery.total.toFixed(2)}`, 170, y);
+              
+              // List grocery items with descriptions on next lines
+              entry.grocery.items.forEach((item, i) => {
+                y += 4;
+                // Check if we need a new page
+                if (y > 270) {
+                  pdf.addPage();
+                  y = 20;
+                }
+                
+                const itemText = `- ${item.name}: ₹${item.price.toFixed(2)}`;
+                pdf.setFontSize(8);
+                pdf.text(itemText, 170, y);
+                
+                // Add description if available
+                if (item.description) {
+                  y += 3;
+                  // Check if we need a new page
+                  if (y > 270) {
+                    pdf.addPage();
+                    y = 20;
+                  }
+                  pdf.setFontSize(7);
+                  pdf.setTextColor(100, 100, 100);
+                  pdf.text(`  (${item.description})`, 170, y);
+                  pdf.setTextColor(0, 0, 0);
+                  pdf.setFontSize(10);
+                }
+              });
+            } else {
+              pdf.text("-", 170, y);
+            }
+            
+            y += 5;
+          });
+          
+          // Add separator between days
+          if (y > 270) {
+            pdf.addPage();
+            y = 20;
+          }
+          pdf.setDrawColor(200, 200, 200);
+          pdf.line(20, y - 2, 190, y - 2);
+        }
+      }
+      
+      // Add summary section on a new page if needed
+      if (y > 230) {
+        pdf.addPage();
+        y = 20;
+      } else {
+        y += 10;
+      }
+      
+      // Summary section
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(12);
+      pdf.text("SUMMARY:", 20, y);
+      y += 10;
+      
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(10);
+      pdf.text(`Total Milk: ${totalMilk.toFixed(1)} Liters`, 40, y);
+      y += 7;
+      pdf.text(`Milk Amount: ₹${totalMilkAmount.toFixed(2)}`, 40, y);
+      y += 7;
+      pdf.text(`Grocery Amount: ₹${totalGroceryAmount.toFixed(2)}`, 40, y);
+      y += 7;
+      pdf.text(`Total Monthly Amount: ₹${totalMonthlyAmount.toFixed(2)}`, 40, y);
+      y += 7;
+      
+      if (pendingBalance > 0) {
+        pdf.text(`Previous Balance: ₹${pendingBalance.toFixed(2)}`, 40, y);
+        y += 7;
+      }
+      
+      // Grand total with highlighting
+      pdf.setFillColor(255, 245, 200);
+      pdf.rect(35, y - 5, 140, 10, 'F');
+      pdf.setFont("helvetica", "bold");
+      pdf.text(`GRAND TOTAL: ₹${grandTotal.toFixed(2)}`, 40, y);
+      y += 15;
+      
+      // Footer
+      pdf.setFont("helvetica", "normal");
+      pdf.text("Thank you for your business!", 20, y);
+      y += 7;
+      pdf.text("Narmada Dairy", 20, y);
+      
+      // Save the PDF
+      pdf.save(`${customer.name.replace(/\s+/g, '_')}_${monthName.replace(/\s+/g, '_')}.pdf`);
+      
+      toast({
+        title: "Success",
+        description: "Monthly bill downloaded successfully as PDF"
+      });
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      toast({
+        title: "Error",
+        description: "Failed to generate PDF bill",
+        variant: "destructive"
+      });
+    }
   };
 
   const renderCalendarGrid = () => {
     const daysInMonth = getDaysInMonth(selectedDate);
     const monthName = format(selectedDate, 'MMMM / yyyy');
     
-    // Calculate totals using actual milk type prices
+    // Calculate totals
     let totalMilk = 0;
-    let totalGrocery = 0;
+    let totalGroceryAmount = 0;
     let totalMilkAmount = 0;
     
     Object.values(monthlyData).forEach(day => {
-      totalMilk += day.morning + day.evening;
-      totalGrocery += day.morningGrocery.total + day.eveningGrocery.total;
-      totalMilkAmount += day.morningMilkAmount + day.eveningMilkAmount;
+      totalMilk += day.totalMilkQuantity;
+      totalGroceryAmount += day.totalGroceryAmount;
+      totalMilkAmount += day.totalMilkAmount;
     });
     
-    const totalMonthlyAmount = totalMilkAmount + totalGrocery;
+    const totalMonthlyAmount = totalMilkAmount + totalGroceryAmount;
     const grandTotal = totalMonthlyAmount + pendingBalance;
 
     return (
@@ -378,10 +538,11 @@ Narmada Dairy
             <h4 className="text-center font-medium text-gray-700 mb-3">Days 1-15</h4>
             
             {/* Table Header */}
-            <div className="grid grid-cols-4 bg-gray-100 text-xs font-medium text-gray-700 rounded-t-lg">
+            <div className="grid grid-cols-5 bg-gray-100 text-xs font-medium text-gray-700 rounded-t-lg">
               <div className="p-2 text-center border-r">Date</div>
-              <div className="p-2 text-center border-r">Morning(L)</div>
-              <div className="p-2 text-center border-r">Evening(L)</div>
+              <div className="p-2 text-center border-r">Time</div>
+              <div className="p-2 text-center border-r">Type</div>
+              <div className="p-2 text-center border-r">Qty(L)</div>
               <div className="p-2 text-center">Grocery(₹)</div>
             </div>
             
@@ -392,26 +553,87 @@ Narmada Dairy
                 const dateStr = format(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day), 'yyyy-MM-dd');
                 const dayData = monthlyData[dateStr];
                 
-                const groceryItems = dayData ? [...dayData.morningGrocery.items, ...dayData.eveningGrocery.items] : [];
-                const groceryTotal = dayData ? dayData.morningGrocery.total + dayData.eveningGrocery.total : 0;
-                const groceryDescription = groceryItems.length > 0 ? groceryItems.map(item => `${item.name}: ₹${item.price}`).join(', ') : '';
+                if (!dayData || !dayData.hasDelivery) {
+                  return (
+                    <div key={day} className="grid grid-cols-5 border-b last:border-b-0">
+                      <div className="p-2 text-center border-r text-sm">{day.toString().padStart(2, '0')}</div>
+                      <div className="p-2 text-center border-r text-sm">-</div>
+                      <div className="p-2 text-center border-r text-sm">-</div>
+                      <div className="p-2 text-center border-r text-sm">-</div>
+                      <div className="p-2 text-center text-sm">-</div>
+                    </div>
+                  );
+                }
                 
-                return (
-                  <div key={day} className="grid grid-cols-4 border-b last:border-b-0 hover:bg-gray-50">
-                    <div className={cn("p-2 text-center border-r text-sm", dayData?.hasDelivery ? "bg-blue-50 font-medium" : "")}>
-                      {day.toString().padStart(2, '0')}
+                // Sort entries by time (Morning first, then Evening)
+                const sortedEntries = [...dayData.entries].sort((a, b) => {
+                  if (a.time === "Morning" && b.time !== "Morning") return -1;
+                  if (a.time !== "Morning" && b.time === "Morning") return 1;
+                  return 0;
+                });
+                
+                return sortedEntries.map((entry, entryIndex) => {
+                  // Create tooltip content for grocery items
+                  const groceryItems = entry.grocery.items;
+                  const groceryTotal = entry.grocery.total;
+                  const groceryDescription = groceryItems.length > 0 
+                    ? groceryItems.map(item => {
+                        let desc = `${item.name}: ₹${item.price.toFixed(2)}`;
+                        if (item.description) {
+                          desc += ` (${item.description})`;
+                        }
+                        return desc;
+                      }).join('\n')
+                    : '';
+                  
+                  return (
+                    <div 
+                      key={`${day}-${entryIndex}`} 
+                      className={cn(
+                        "grid grid-cols-5 border-b last:border-b-0 hover:bg-gray-50",
+                        entryIndex > 0 ? "border-t border-dashed border-gray-200" : ""
+                      )}
+                    >
+                      <div className={cn(
+                        "p-2 text-center border-r text-sm",
+                        entryIndex === 0 ? "bg-blue-50 font-medium" : "bg-blue-50/30"
+                      )}>
+                        {entryIndex === 0 ? day.toString().padStart(2, '0') : ""}
+                      </div>
+                      <div className="p-2 text-center border-r text-sm">
+                        {entry.time}
+                      </div>
+                      <div className="p-2 text-center border-r text-sm">
+                        {entry.milkType}
+                      </div>
+                      <div className="p-2 text-center border-r text-sm">
+                        {entry.milkQuantity > 0 ? `${entry.milkQuantity.toFixed(1)}` : '-'}
+                      </div>
+                      <div 
+                        className="p-2 text-center text-sm" 
+                        title={groceryDescription}
+                      >
+                        {groceryTotal > 0 ? (
+                          <div className="cursor-help">
+                            ₹{groceryTotal.toFixed(2)}
+                            {groceryItems.length > 0 && (
+                              <div className="hidden group-hover:block absolute bg-white p-2 shadow-md rounded text-left z-10">
+                                {groceryItems.map((item, i) => (
+                                  <div key={i} className="text-xs">
+                                    {item.name}: ₹{item.price.toFixed(2)}
+                                    {item.description && (
+                                      <div className="text-gray-500 text-xs ml-2">{item.description}</div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ) : '-'}
+                      </div>
                     </div>
-                    <div className="p-2 text-center border-r text-sm">
-                      {dayData?.morning > 0 ? `${dayData.morning.toFixed(1)}L` : '-'}
-                    </div>
-                    <div className="p-2 text-center border-r text-sm">
-                      {dayData?.evening > 0 ? `${dayData.evening.toFixed(1)}L` : '-'}
-                    </div>
-                    <div className="p-2 text-center text-sm" title={groceryDescription}>
-                      {groceryTotal > 0 ? `₹${groceryTotal}` : '-'}
-                    </div>
-                  </div>
-                );
+                  );
+                });
               })}
             </div>
           </div>
@@ -421,10 +643,11 @@ Narmada Dairy
             <h4 className="text-center font-medium text-gray-700 mb-3">Days 16-31</h4>
             
             {/* Table Header */}
-            <div className="grid grid-cols-4 bg-gray-100 text-xs font-medium text-gray-700 rounded-t-lg">
+            <div className="grid grid-cols-5 bg-gray-100 text-xs font-medium text-gray-700 rounded-t-lg">
               <div className="p-2 text-center border-r">Date</div>
-              <div className="p-2 text-center border-r">Morning(L)</div>
-              <div className="p-2 text-center border-r">Evening(L)</div>
+              <div className="p-2 text-center border-r">Time</div>
+              <div className="p-2 text-center border-r">Type</div>
+              <div className="p-2 text-center border-r">Qty(L)</div>
               <div className="p-2 text-center">Grocery(₹)</div>
             </div>
             
@@ -437,32 +660,94 @@ Narmada Dairy
                 const dateStr = format(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day), 'yyyy-MM-dd');
                 const dayData = monthlyData[dateStr];
                 
-                const groceryItems = dayData ? [...dayData.morningGrocery.items, ...dayData.eveningGrocery.items] : [];
-                const groceryTotal = dayData ? dayData.morningGrocery.total + dayData.eveningGrocery.total : 0;
-                const groceryDescription = groceryItems.length > 0 ? groceryItems.map(item => `${item.name}: ₹${item.price}`).join(', ') : '';
+                if (!dayData || !dayData.hasDelivery) {
+                  return (
+                    <div key={day} className="grid grid-cols-5 border-b last:border-b-0">
+                      <div className="p-2 text-center border-r text-sm">{day.toString().padStart(2, '0')}</div>
+                      <div className="p-2 text-center border-r text-sm">-</div>
+                      <div className="p-2 text-center border-r text-sm">-</div>
+                      <div className="p-2 text-center border-r text-sm">-</div>
+                      <div className="p-2 text-center text-sm">-</div>
+                    </div>
+                  );
+                }
                 
-                return (
-                  <div key={day} className="grid grid-cols-4 border-b last:border-b-0 hover:bg-gray-50">
-                    <div className={cn("p-2 text-center border-r text-sm", dayData?.hasDelivery ? "bg-blue-50 font-medium" : "")}>
-                      {day.toString().padStart(2, '0')}
+                // Sort entries by time (Morning first, then Evening)
+                const sortedEntries = [...dayData.entries].sort((a, b) => {
+                  if (a.time === "Morning" && b.time !== "Morning") return -1;
+                  if (a.time !== "Morning" && b.time === "Morning") return 1;
+                  return 0;
+                });
+                
+                return sortedEntries.map((entry, entryIndex) => {
+                  // Create tooltip content for grocery items
+                  const groceryItems = entry.grocery.items;
+                  const groceryTotal = entry.grocery.total;
+                  const groceryDescription = groceryItems.length > 0 
+                    ? groceryItems.map(item => {
+                        let desc = `${item.name}: ₹${item.price.toFixed(2)}`;
+                        if (item.description) {
+                          desc += ` (${item.description})`;
+                        }
+                        return desc;
+                      }).join('\n')
+                    : '';
+                  
+                  return (
+                    <div 
+                      key={`${day}-${entryIndex}`} 
+                      className={cn(
+                        "grid grid-cols-5 border-b last:border-b-0 hover:bg-gray-50",
+                        entryIndex > 0 ? "border-t border-dashed border-gray-200" : ""
+                      )}
+                    >
+                      <div className={cn(
+                        "p-2 text-center border-r text-sm",
+                        entryIndex === 0 ? "bg-blue-50 font-medium" : "bg-blue-50/30"
+                      )}>
+                        {entryIndex === 0 ? day.toString().padStart(2, '0') : ""}
+                      </div>
+                      <div className="p-2 text-center border-r text-sm">
+                        {entry.time}
+                      </div>
+                      <div className="p-2 text-center border-r text-sm">
+                        {entry.milkType}
+                      </div>
+                      <div className="p-2 text-center border-r text-sm">
+                        {entry.milkQuantity > 0 ? `${entry.milkQuantity.toFixed(1)}` : '-'}
+                      </div>
+                      <div 
+                        className="p-2 text-center text-sm group relative" 
+                        title={groceryDescription}
+                      >
+                        {groceryTotal > 0 ? (
+                          <div className="cursor-help">
+                            ₹{groceryTotal.toFixed(2)}
+                            {groceryItems.length > 0 && (
+                              <div className="hidden group-hover:block absolute bg-white p-2 shadow-md rounded text-left z-10">
+                                {groceryItems.map((item, i) => (
+                                  <div key={i} className="text-xs">
+                                    {item.name}: ₹{item.price.toFixed(2)}
+                                    {item.description && (
+                                      <div className="text-gray-500 text-xs ml-2">{item.description}</div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ) : '-'}
+                      </div>
                     </div>
-                    <div className="p-2 text-center border-r text-sm">
-                      {dayData?.morning > 0 ? `${dayData.morning.toFixed(1)}L` : '-'}
-                    </div>
-                    <div className="p-2 text-center border-r text-sm">
-                      {dayData?.evening > 0 ? `${dayData.evening.toFixed(1)}L` : '-'}
-                    </div>
-                    <div className="p-2 text-center text-sm" title={groceryDescription}>
-                      {groceryTotal > 0 ? `₹${groceryTotal}` : '-'}
-                    </div>
-                  </div>
-                );
+                  );
+                });
               }).filter(Boolean)}
               
               {/* Fill empty rows if month has less than 31 days */}
               {Array.from({ length: Math.max(0, 31 - daysInMonth) }, (_, i) => (
-                <div key={`empty-${i}`} className="grid grid-cols-4 border-b last:border-b-0">
+                <div key={`empty-${i}`} className="grid grid-cols-5 border-b last:border-b-0">
                   <div className="p-2 text-center border-r text-sm text-gray-300">-</div>
+                  <div className="p-2 text-center border-r text-sm">-</div>
                   <div className="p-2 text-center border-r text-sm">-</div>
                   <div className="p-2 text-center border-r text-sm">-</div>
                   <div className="p-2 text-center text-sm">-</div>
@@ -490,7 +775,7 @@ Narmada Dairy
                 </div>
                 <div className="flex justify-between items-center py-2 border-b border-gray-200">
                   <span className="text-sm font-medium text-gray-600">Grocery Amount</span>
-                  <span className="text-lg font-bold text-green-600">₹{totalGrocery.toFixed(2)}</span>
+                  <span className="text-lg font-bold text-green-600">₹{totalGroceryAmount.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between items-center py-2 border-b-2 border-gray-400">
                   <span className="text-base font-semibold text-gray-700">Total Monthly Amount</span>
@@ -581,10 +866,10 @@ Narmada Dairy
             <Button
               onClick={generatePDF}
               disabled={!selectedCustomer || isLoading}
-              className="w-full"
+              className="w-full flex items-center"
             >
-              <Download className="h-4 w-4 mr-2" />
-              Download Bill
+              <FileText className="h-4 w-4 mr-2" />
+              Download PDF Bill
             </Button>
           </div>
 

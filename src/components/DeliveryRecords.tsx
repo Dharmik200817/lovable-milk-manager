@@ -48,7 +48,7 @@ export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) =
   const [milkTypes, setMilkTypes] = useState<MilkType[]>([]);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [isBulkMode, setIsBulkMode] = useState(false);
+  const [isBulkMode, setIsBulkMode] = useState(true); // Default to bulk mode
   const [isLoading, setIsLoading] = useState(false);
   const [lastDeliveryTime, setLastDeliveryTime] = useState('Morning');
   const [formData, setFormData] = useState({
@@ -149,47 +149,6 @@ export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) =
       console.error('Error loading milk types:', error);
     }
   };
-
-  if (isBulkMode) {
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <h2 className="text-3xl font-bold text-gray-900">Delivery Records</h2>
-            <div className="flex rounded-lg border">
-              <Button
-                variant={!isBulkMode ? "default" : "ghost"}
-                onClick={() => setIsBulkMode(false)}
-                className="rounded-r-none"
-              >
-                <List className="h-4 w-4 mr-2" />
-                Single Entry
-              </Button>
-              <Button
-                variant={isBulkMode ? "default" : "ghost"}
-                onClick={() => setIsBulkMode(true)}
-                className="rounded-l-none"
-              >
-                <Grid className="h-4 w-4 mr-2" />
-                Bulk Entry
-              </Button>
-            </div>
-          </div>
-        </div>
-        <BulkDeliveryEntry />
-      </div>
-    );
-  }
-
-  const filteredRecords = deliveryRecords.filter(record =>
-    record.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    record.milk_type_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    record.delivery_date.includes(searchTerm)
-  );
-
-  const todaysRecords = deliveryRecords.filter(record => 
-    record.delivery_date === format(new Date(), 'yyyy-MM-dd')
-  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -332,6 +291,47 @@ export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) =
     setIsAddDialogOpen(open);
   };
 
+  if (isBulkMode) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <h2 className="text-3xl font-bold text-gray-900">Delivery Records</h2>
+            <div className="flex rounded-lg border">
+              <Button
+                variant={!isBulkMode ? "default" : "ghost"}
+                onClick={() => setIsBulkMode(false)}
+                className="rounded-r-none"
+              >
+                <List className="h-4 w-4 mr-2" />
+                Single Entry
+              </Button>
+              <Button
+                variant={isBulkMode ? "default" : "ghost"}
+                onClick={() => setIsBulkMode(true)}
+                className="rounded-l-none"
+              >
+                <Grid className="h-4 w-4 mr-2" />
+                Bulk Entry
+              </Button>
+            </div>
+          </div>
+        </div>
+        <BulkDeliveryEntry />
+      </div>
+    );
+  }
+
+  const filteredRecords = deliveryRecords.filter(record =>
+    record.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    record.milk_type_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    record.delivery_date.includes(searchTerm)
+  );
+
+  const todaysRecords = deliveryRecords.filter(record => 
+    record.delivery_date === format(new Date(), 'yyyy-MM-dd')
+  );
+  
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
