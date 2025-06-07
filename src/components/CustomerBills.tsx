@@ -332,38 +332,63 @@ export const CustomerBills = () => {
       const pdf = new jsPDF();
       const pageWidth = pdf.internal.pageSize.getWidth();
       
-      // Set font styles
+      // Set colors
+      const primaryColor = [41, 98, 255]; // Blue
+      const secondaryColor = [248, 250, 252]; // Light gray
+      const textColor = [51, 65, 85]; // Dark gray
+      
+      // Header section with background
+      pdf.setFillColor(...primaryColor);
+      pdf.rect(0, 0, pageWidth, 35, 'F');
+      
+      pdf.setTextColor(255, 255, 255);
       pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(16);
+      pdf.setFontSize(18);
+      pdf.text("NARMADA DAIRY", pageWidth / 2, 15, { align: "center" });
+      pdf.setFontSize(14);
+      pdf.text("MONTHLY BILL", pageWidth / 2, 25, { align: "center" });
       
-      // Header
-      pdf.text("NARMADA DAIRY - MONTHLY BILL", pageWidth / 2, 20, { align: "center" });
-      
+      // Customer info section
+      pdf.setTextColor(...textColor);
       pdf.setFontSize(12);
-      pdf.setFont("helvetica", "normal");
-      pdf.text(`Customer: ${customer.name}`, 20, 30);
-      pdf.text(`Address: ${customer.address || 'N/A'}`, 20, 35);
-      pdf.text(`Month: ${monthName}`, 20, 40);
-      
       pdf.setFont("helvetica", "bold");
-      pdf.text("DAILY BREAKDOWN:", 20, 50);
+      pdf.text("CUSTOMER DETAILS", 20, 45);
       
-      // Table headers - removed Type column, updated layout
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(11);
+      pdf.text(`Name: ${customer.name}`, 20, 55);
+      pdf.text(`Address: ${customer.address || 'N/A'}`, 20, 62);
+      pdf.text(`Bill Period: ${monthName}`, 20, 69);
+      
+      // Add a separator line
+      pdf.setDrawColor(200, 200, 200);
+      pdf.setLineWidth(0.5);
+      pdf.line(20, 75, pageWidth - 20, 75);
+      
+      // Daily breakdown section
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(12);
+      pdf.text("DAILY BREAKDOWN", 20, 85);
+      
+      // Table headers with background
+      pdf.setFillColor(...secondaryColor);
+      pdf.rect(20, 90, pageWidth - 40, 8, 'F');
+      
+      pdf.setTextColor(...textColor);
       pdf.setFontSize(10);
-      pdf.text("Date", 20, 55);
-      pdf.text("Morning", 40, 55);
-      pdf.text("Evening", 70, 55);
-      pdf.text("Total Qty", 100, 55);
-      pdf.text("Rate", 130, 55);
-      pdf.text("Amount", 155, 55);
-      pdf.text("Grocery", 180, 55);
-      
-      // Draw header line
-      pdf.line(20, 56, 200, 56);
+      pdf.setFont("helvetica", "bold");
+      pdf.text("Date", 25, 95);
+      pdf.text("Morning", 55, 95);
+      pdf.text("Evening", 85, 95);
+      pdf.text("Total Qty", 115, 95);
+      pdf.text("Rate", 145, 95);
+      pdf.text("Amount", 165, 95);
+      pdf.text("Grocery", 185, 95);
       
       // Table content
-      let y = 60;
+      let y = 105;
       const daysInMonth = getDaysInMonth(selectedDate);
+      let rowCount = 0;
       
       for (let day = 1; day <= daysInMonth; day++) {
         const dateStr = format(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day), 'yyyy-MM-dd');
@@ -371,9 +396,16 @@ export const CustomerBills = () => {
         
         if (dayData?.hasDelivery) {
           // Check if we need a new page
-          if (y > 270) {
+          if (y > 260) {
             pdf.addPage();
             y = 20;
+            rowCount = 0;
+          }
+          
+          // Alternate row background
+          if (rowCount % 2 === 0) {
+            pdf.setFillColor(250, 250, 250);
+            pdf.rect(20, y - 5, pageWidth - 40, 8, 'F');
           }
           
           // Calculate morning and evening totals
@@ -402,103 +434,127 @@ export const CustomerBills = () => {
           
           // Print the day's summary
           pdf.setFont("helvetica", "normal");
-          pdf.text(day.toString().padStart(2, '0'), 20, y);
-          pdf.text(morningQty > 0 ? `${morningQty.toFixed(1)}L` : '-', 40, y);
-          pdf.text(eveningQty > 0 ? `${eveningQty.toFixed(1)}L` : '-', 70, y);
-          pdf.text(totalQty > 0 ? `${totalQty.toFixed(1)}L` : '-', 100, y);
-          pdf.text(totalQty > 0 ? `₹${Math.ceil(averageRate)}` : '-', 130, y);
-          pdf.text(totalDayAmount > 0 ? `₹${totalDayAmount.toFixed(2)}` : '-', 155, y);
+          pdf.setTextColor(...textColor);
+          pdf.setFontSize(9);
+          
+          pdf.text(day.toString().padStart(2, '0'), 25, y);
+          pdf.text(morningQty > 0 ? `${morningQty.toFixed(2)}L` : '-', 55, y);
+          pdf.text(eveningQty > 0 ? `${eveningQty.toFixed(2)}L` : '-', 85, y);
+          pdf.text(totalQty > 0 ? `${totalQty.toFixed(2)}L` : '-', 115, y);
+          pdf.text(totalQty > 0 ? `${Math.ceil(averageRate)}` : '-', 145, y);
+          pdf.text(totalDayAmount > 0 ? `${totalDayAmount.toFixed(2)}` : '-', 165, y);
           
           // Grocery items
           if (groceryItems.length > 0) {
-            pdf.text(`₹${groceryTotal.toFixed(2)}`, 180, y);
+            pdf.text(`${groceryTotal.toFixed(2)}`, 185, y);
             
             // List grocery items with descriptions on next lines
             groceryItems.forEach((item, i) => {
               y += 4;
               // Check if we need a new page
-              if (y > 270) {
+              if (y > 260) {
                 pdf.addPage();
                 y = 20;
+                rowCount = 0;
               }
               
-              const itemText = `- ${item.name}: ₹${item.price.toFixed(2)}`;
-              pdf.setFontSize(8);
-              pdf.text(itemText, 180, y);
+              const itemText = `- ${item.name}: ${item.price.toFixed(2)}`;
+              pdf.setFontSize(7);
+              pdf.text(itemText, 185, y);
               
               // Add description if available
               if (item.description) {
                 y += 3;
                 // Check if we need a new page
-                if (y > 270) {
+                if (y > 260) {
                   pdf.addPage();
                   y = 20;
+                  rowCount = 0;
                 }
-                pdf.setFontSize(7);
-                pdf.setTextColor(100, 100, 100);
-                pdf.text(`  (${item.description})`, 180, y);
-                pdf.setTextColor(0, 0, 0);
-                pdf.setFontSize(10);
+                pdf.setFontSize(6);
+                pdf.setTextColor(120, 120, 120);
+                pdf.text(`  (${item.description})`, 185, y);
+                pdf.setTextColor(...textColor);
               }
             });
+            pdf.setFontSize(9);
           } else {
-            pdf.text("-", 180, y);
+            pdf.text("-", 185, y);
           }
           
-          y += 5;
-          
-          // Add separator between days
-          if (y > 270) {
-            pdf.addPage();
-            y = 20;
-          }
-          pdf.setDrawColor(200, 200, 200);
-          pdf.line(20, y - 2, 200, y - 2);
+          y += 8;
+          rowCount++;
         }
       }
       
       // Add summary section on a new page if needed
-      if (y > 230) {
+      if (y > 220) {
         pdf.addPage();
         y = 20;
       } else {
-        y += 10;
+        y += 15;
       }
       
-      // Summary section
+      // Summary section with modern design
+      pdf.setFillColor(...primaryColor);
+      pdf.rect(20, y - 5, pageWidth - 40, 8, 'F');
+      
+      pdf.setTextColor(255, 255, 255);
       pdf.setFont("helvetica", "bold");
       pdf.setFontSize(12);
-      pdf.text("SUMMARY:", 20, y);
-      y += 10;
-      
-      pdf.setFont("helvetica", "normal");
-      pdf.setFontSize(10);
-      pdf.text(`Total Milk: ${totalMilk.toFixed(1)} Liters`, 40, y);
-      y += 7;
-      pdf.text(`Milk Amount: ₹${totalMilkAmount.toFixed(2)}`, 40, y);
-      y += 7;
-      pdf.text(`Grocery Amount: ₹${totalGroceryAmount.toFixed(2)}`, 40, y);
-      y += 7;
-      pdf.text(`Total Monthly Amount: ₹${totalMonthlyAmount.toFixed(2)}`, 40, y);
-      y += 7;
-      
-      if (pendingBalance > 0) {
-        pdf.text(`Previous Balance: ₹${pendingBalance.toFixed(2)}`, 40, y);
-        y += 7;
-      }
-      
-      // Grand total with highlighting - ROUNDED TO NEAREST RUPEE
-      pdf.setFillColor(255, 245, 200);
-      pdf.rect(35, y - 5, 140, 10, 'F');
-      pdf.setFont("helvetica", "bold");
-      pdf.text(`GRAND TOTAL: ₹${Math.round(grandTotal)}`, 40, y);
+      pdf.text("BILL SUMMARY", 25, y);
       y += 15;
       
-      // Footer
+      // Summary items with clean layout
+      pdf.setTextColor(...textColor);
       pdf.setFont("helvetica", "normal");
-      pdf.text("Thank you for your business!", 20, y);
-      y += 7;
-      pdf.text("Narmada Dairy", 20, y);
+      pdf.setFontSize(11);
+      
+      const summaryItems = [
+        [`Total Milk Quantity:`, `${totalMilk.toFixed(2)} Liters`],
+        [`Milk Amount:`, `${totalMilkAmount.toFixed(2)}`],
+        [`Grocery Amount:`, `${totalGroceryAmount.toFixed(2)}`],
+        [`Monthly Total:`, `${totalMonthlyAmount.toFixed(2)}`]
+      ];
+      
+      if (pendingBalance > 0) {
+        summaryItems.push([`Previous Balance:`, `${pendingBalance.toFixed(2)}`]);
+      }
+      
+      summaryItems.forEach(([label, value], index) => {
+        pdf.text(label, 25, y);
+        pdf.text(value, 120, y);
+        y += 8;
+      });
+      
+      // Grand total with modern highlighting
+      y += 5;
+      pdf.setFillColor(255, 248, 220);
+      pdf.rect(20, y - 8, pageWidth - 40, 15, 'F');
+      
+      pdf.setDrawColor(...primaryColor);
+      pdf.setLineWidth(1);
+      pdf.rect(20, y - 8, pageWidth - 40, 15);
+      
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(14);
+      pdf.setTextColor(...primaryColor);
+      pdf.text("TOTAL AMOUNT:", 25, y);
+      pdf.text(`${Math.round(grandTotal)}`, 120, y);
+      y += 20;
+      
+      // Footer with modern styling
+      pdf.setDrawColor(200, 200, 200);
+      pdf.line(20, y, pageWidth - 20, y);
+      y += 10;
+      
+      pdf.setTextColor(100, 100, 100);
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(10);
+      pdf.text("Thank you for your business!", pageWidth / 2, y, { align: "center" });
+      y += 8;
+      pdf.setFont("helvetica", "bold");
+      pdf.text("NARMADA DAIRY", pageWidth / 2, y, { align: "center" });
       
       // Save the PDF
       pdf.save(`${customer.name.replace(/\s+/g, '_')}_${monthName.replace(/\s+/g, '_')}.pdf`);
