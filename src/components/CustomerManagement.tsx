@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -5,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Plus, Search, Edit, Trash2 } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, Eye, MessageCircle } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -13,10 +14,15 @@ interface Customer {
   id: string;
   name: string;
   address: string;
+  phone_number?: string;
   created_at: string;
 }
 
-export const CustomerManagement = () => {
+interface CustomerManagementProps {
+  onViewRecords?: (customerId: string) => void;
+}
+
+export const CustomerManagement = ({ onViewRecords }: CustomerManagementProps) => {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
@@ -24,7 +30,8 @@ export const CustomerManagement = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
-    address: ''
+    address: '',
+    phone_number: ''
   });
 
   // Load customers from Supabase on component mount
@@ -51,7 +58,8 @@ export const CustomerManagement = () => {
       toast({
         title: "Error",
         description: "Failed to load customers",
-        variant: "destructive"
+        variant: "destructive",
+        duration: 2000
       });
     } finally {
       setIsLoading(false);
@@ -60,7 +68,8 @@ export const CustomerManagement = () => {
 
   const filteredCustomers = customers.filter(customer =>
     customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (customer.address && customer.address.toLowerCase().includes(searchTerm.toLowerCase()))
+    (customer.address && customer.address.toLowerCase().includes(searchTerm.toLowerCase())) ||
+    (customer.phone_number && customer.phone_number.includes(searchTerm))
   );
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -70,7 +79,8 @@ export const CustomerManagement = () => {
       toast({
         title: "Error",
         description: "Name is required",
-        variant: "destructive"
+        variant: "destructive",
+        duration: 2000
       });
       return;
     }
@@ -84,7 +94,8 @@ export const CustomerManagement = () => {
           .from('customers')
           .update({
             name: formData.name.trim(),
-            address: formData.address.trim() || null
+            address: formData.address.trim() || null,
+            phone_number: formData.phone_number.trim() || null
           })
           .eq('id', editingCustomer.id);
 
@@ -92,7 +103,8 @@ export const CustomerManagement = () => {
 
         toast({
           title: "Success",
-          description: "Customer updated successfully"
+          description: "Customer updated successfully",
+          duration: 2000
         });
       } else {
         // Create new customer
@@ -100,7 +112,8 @@ export const CustomerManagement = () => {
           .from('customers')
           .insert({
             name: formData.name.trim(),
-            address: formData.address.trim() || null
+            address: formData.address.trim() || null,
+            phone_number: formData.phone_number.trim() || null
           })
           .select()
           .single();
@@ -121,7 +134,8 @@ export const CustomerManagement = () => {
 
         toast({
           title: "Success",
-          description: "Customer added successfully"
+          description: "Customer added successfully",
+          duration: 2000
         });
       }
 
@@ -129,7 +143,7 @@ export const CustomerManagement = () => {
       await loadCustomers();
       
       // Reset form
-      setFormData({ name: '', address: '' });
+      setFormData({ name: '', address: '', phone_number: '' });
       setIsAddDialogOpen(false);
       setEditingCustomer(null);
     } catch (error) {
@@ -137,7 +151,8 @@ export const CustomerManagement = () => {
       toast({
         title: "Error",
         description: "Failed to save customer",
-        variant: "destructive"
+        variant: "destructive",
+        duration: 2000
       });
     } finally {
       setIsLoading(false);
@@ -148,7 +163,8 @@ export const CustomerManagement = () => {
     setEditingCustomer(customer);
     setFormData({
       name: customer.name,
-      address: customer.address || ''
+      address: customer.address || '',
+      phone_number: customer.phone_number || ''
     });
     setIsAddDialogOpen(true);
   };
@@ -220,7 +236,8 @@ export const CustomerManagement = () => {
 
       toast({
         title: "Success",
-        description: "Customer and all related records deleted successfully"
+        description: "Customer and all related records deleted successfully",
+        duration: 2000
       });
 
       // Reload customers
@@ -230,11 +247,40 @@ export const CustomerManagement = () => {
       toast({
         title: "Error",
         description: "Failed to delete customer. Please try again.",
-        variant: "destructive"
+        variant: "destructive",
+        duration: 2000
       });
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const sendWhatsAppMessage = (customer: Customer) => {
+    if (!customer.phone_number) {
+      toast({
+        title: "Error",
+        description: "No phone number found for this customer",
+        variant: "destructive",
+        duration: 2000
+      });
+      return;
+    }
+
+    const message = `Hello ${customer.name}!\n\nThis is NARMADA DAIRY. We hope you're enjoying our fresh milk delivery service.\n\nIf you have any questions or need to discuss your account, please feel free to contact us.\n\nThank you for choosing NARMADA DAIRY! 🥛`;
+    
+    // Create WhatsApp URL
+    const phoneNumber = customer.phone_number.replace(/\D/g, ''); // Remove all non-digits
+    const encodedMessage = encodeURIComponent(message);
+    const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodedMessage}`;
+
+    // Open WhatsApp
+    window.open(whatsappUrl, '_blank');
+
+    toast({
+      title: "Success",
+      description: "WhatsApp opened with message",
+      duration: 2000
+    });
   };
 
   return (
@@ -268,6 +314,16 @@ export const CustomerManagement = () => {
                 />
               </div>
               <div>
+                <Label htmlFor="phone_number">Phone Number</Label>
+                <Input
+                  id="phone_number"
+                  value={formData.phone_number}
+                  onChange={(e) => setFormData({ ...formData, phone_number: e.target.value })}
+                  placeholder="Enter phone number (e.g., +919876543210)"
+                  disabled={isLoading}
+                />
+              </div>
+              <div>
                 <Label htmlFor="address">Full Address</Label>
                 <Textarea
                   id="address"
@@ -288,7 +344,7 @@ export const CustomerManagement = () => {
                   onClick={() => {
                     setIsAddDialogOpen(false);
                     setEditingCustomer(null);
-                    setFormData({ name: '', address: '' });
+                    setFormData({ name: '', address: '', phone_number: '' });
                   }}
                   disabled={isLoading}
                 >
@@ -305,7 +361,7 @@ export const CustomerManagement = () => {
         <div className="relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
           <Input
-            placeholder="Search customers by name or address..."
+            placeholder="Search customers by name, address, or phone..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-10"
@@ -324,6 +380,9 @@ export const CustomerManagement = () => {
                   Name
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Phone Number
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Address
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -337,13 +396,13 @@ export const CustomerManagement = () => {
             <tbody className="bg-white divide-y divide-gray-200">
               {isLoading ? (
                 <tr>
-                  <td colSpan={4} className="px-6 py-8 text-center text-gray-500">
+                  <td colSpan={5} className="px-6 py-8 text-center text-gray-500">
                     Loading customers...
                   </td>
                 </tr>
               ) : filteredCustomers.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-6 py-8 text-center text-gray-500">
+                  <td colSpan={5} className="px-6 py-8 text-center text-gray-500">
                     No customers found. Add your first customer to get started.
                   </td>
                 </tr>
@@ -353,6 +412,9 @@ export const CustomerManagement = () => {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="font-medium text-gray-900">{customer.name}</div>
                     </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {customer.phone_number || '-'}
+                    </td>
                     <td className="px-6 py-4 text-sm text-gray-900 max-w-xs truncate">
                       {customer.address || '-'}
                     </td>
@@ -361,12 +423,37 @@ export const CustomerManagement = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex space-x-2">
+                        {onViewRecords && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => onViewRecords(customer.id)}
+                            className="text-green-600 hover:text-green-900"
+                            disabled={isLoading}
+                            title="View Records"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {customer.phone_number && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => sendWhatsAppMessage(customer)}
+                            className="text-green-600 hover:text-green-900"
+                            disabled={isLoading}
+                            title="Send WhatsApp Message"
+                          >
+                            <MessageCircle className="h-4 w-4" />
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => handleEdit(customer)}
                           className="text-blue-600 hover:text-blue-900"
                           disabled={isLoading}
+                          title="Edit Customer"
                         >
                           <Edit className="h-4 w-4" />
                         </Button>
@@ -376,6 +463,7 @@ export const CustomerManagement = () => {
                           onClick={() => handleDelete(customer.id)}
                           className="text-red-600 hover:text-red-900"
                           disabled={isLoading}
+                          title="Delete Customer"
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>

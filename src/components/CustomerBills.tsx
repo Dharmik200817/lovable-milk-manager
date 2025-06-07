@@ -7,7 +7,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Calendar as CalendarIcon, Download, Trash2, FileText } from 'lucide-react';
+import { Calendar as CalendarIcon, Download, Trash2, FileText, MessageCircle } from 'lucide-react';
 import { format, getDaysInMonth, startOfMonth, addDays } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
@@ -18,6 +18,7 @@ interface Customer {
   id: string;
   name: string;
   address: string;
+  phone_number?: string;
 }
 
 interface DeliveryRecord {
@@ -59,9 +60,14 @@ interface MonthlyData {
   };
 }
 
-export const CustomerBills = () => {
+interface CustomerBillsProps {
+  preSelectedCustomerId?: string;
+  onViewRecords?: (customerId: string) => void;
+}
+
+export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: CustomerBillsProps) => {
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [selectedCustomer, setSelectedCustomer] = useState<string>('');
+  const [selectedCustomer, setSelectedCustomer] = useState<string>(preSelectedCustomerId || '');
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [monthlyData, setMonthlyData] = useState<MonthlyData>({});
   const [isLoading, setIsLoading] = useState(false);
@@ -247,6 +253,12 @@ export const CustomerBills = () => {
   }, []);
 
   useEffect(() => {
+    if (preSelectedCustomerId && customers.length > 0) {
+      setSelectedCustomer(preSelectedCustomerId);
+    }
+  }, [preSelectedCustomerId, customers]);
+
+  useEffect(() => {
     if (selectedCustomer) {
       loadMonthlyData();
       loadPendingBalance();
@@ -281,14 +293,17 @@ export const CustomerBills = () => {
 
         if (paymentError) throw paymentError;
 
+        // Show success toast that auto-dismisses after 2 seconds
         toast({
           title: "Success",
-          description: `Outstanding balance of ₹${pendingBalance.toFixed(2)} cleared for ${customer.name}`
+          description: `Outstanding balance of ${pendingBalance.toFixed(2)} cleared for ${customer.name}`,
+          duration: 2000
         });
       } else {
         toast({
           title: "Info",
-          description: "No outstanding balance to clear"
+          description: "No outstanding balance to clear",
+          duration: 2000
         });
       }
 
@@ -300,9 +315,72 @@ export const CustomerBills = () => {
       toast({
         title: "Error",
         description: "Failed to clear balance",
-        variant: "destructive"
+        variant: "destructive",
+        duration: 2000
       });
     }
+  };
+
+  const sendWhatsAppBill = (customer: Customer) => {
+    if (!customer.phone_number) {
+      toast({
+        title: "Error",
+        description: "No phone number found for this customer",
+        variant: "destructive",
+        duration: 2000
+      });
+      return;
+    }
+
+    // Calculate totals for the month
+    let totalMilk = 0;
+    let totalGroceryAmount = 0;
+    let totalMilkAmount = 0;
+    
+    Object.values(monthlyData).forEach(day => {
+      totalMilk += day.totalMilkQuantity;
+      totalGroceryAmount += day.totalGroceryAmount;
+      totalMilkAmount += day.totalMilkAmount;
+    });
+    
+    const totalMonthlyAmount = totalMilkAmount + totalGroceryAmount;
+    const grandTotal = totalMonthlyAmount + pendingBalance;
+    const monthName = format(selectedDate, 'MMMM yyyy');
+
+    // Create WhatsApp message
+    const message = `🥛 *NARMADA DAIRY - Monthly Bill*
+
+📋 *Customer:* ${customer.name}
+📅 *Period:* ${monthName}
+
+📊 *Bill Summary:*
+• Total Milk: ${totalMilk.toFixed(1)} Liters
+• Milk Amount: ${totalMilkAmount.toFixed(2)}
+• Grocery Amount: ${totalGroceryAmount.toFixed(2)}
+• Monthly Total: ${totalMonthlyAmount.toFixed(2)}
+${pendingBalance > 0 ? `• Previous Balance: ${pendingBalance.toFixed(2)}` : ''}
+
+💰 *TOTAL AMOUNT: ${Math.round(grandTotal)}*
+
+📱 *Payment Instructions:*
+If payment is done, the screenshot should be sent to Rashikbhai, not on this number.
+
+Thank you for your business! 🙏
+*NARMADA DAIRY*`;
+
+    // Create WhatsApp URL
+    const phoneNumber = customer.phone_number.replace(/\D/g, ''); // Remove all non-digits
+    const encodedMessage = encodeURIComponent(message);
+    const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodedMessage}`;
+
+    // Open WhatsApp
+    window.open(whatsappUrl, '_blank');
+
+    toast({
+      title: "Success",
+      description: "WhatsApp opened with bill message",
+      duration: 2000
+    });
   };
 
   const generatePDF = async () => {
@@ -332,13 +410,13 @@ export const CustomerBills = () => {
       const pdf = new jsPDF();
       const pageWidth = pdf.internal.pageSize.getWidth();
       
-      // Set colors
-      const primaryColor = [41, 98, 255]; // Blue
-      const secondaryColor = [248, 250, 252]; // Light gray
-      const textColor = [51, 65, 85]; // Dark gray
+      // Set colors - converted RGB arrays to individual values
+      const primaryColorR = 41, primaryColorG = 98, primaryColorB = 255; // Blue
+      const secondaryColorR = 248, secondaryColorG = 250, secondaryColorB = 252; // Light gray
+      const textColorR = 51, textColorG = 65, textColorB = 85; // Dark gray
       
       // Header section with background
-      pdf.setFillColor(...primaryColor);
+      pdf.setFillColor(primaryColorR, primaryColorG, primaryColorB);
       pdf.rect(0, 0, pageWidth, 35, 'F');
       
       pdf.setTextColor(255, 255, 255);
@@ -349,7 +427,7 @@ export const CustomerBills = () => {
       pdf.text("MONTHLY BILL", pageWidth / 2, 25, { align: "center" });
       
       // Customer info section
-      pdf.setTextColor(...textColor);
+      pdf.setTextColor(textColorR, textColorG, textColorB);
       pdf.setFontSize(12);
       pdf.setFont("helvetica", "bold");
       pdf.text("CUSTOMER DETAILS", 20, 45);
@@ -358,35 +436,38 @@ export const CustomerBills = () => {
       pdf.setFontSize(11);
       pdf.text(`Name: ${customer.name}`, 20, 55);
       pdf.text(`Address: ${customer.address || 'N/A'}`, 20, 62);
-      pdf.text(`Bill Period: ${monthName}`, 20, 69);
+      if (customer.phone_number) {
+        pdf.text(`Phone: ${customer.phone_number}`, 20, 69);
+      }
+      pdf.text(`Bill Period: ${monthName}`, 20, 76);
       
       // Add a separator line
       pdf.setDrawColor(200, 200, 200);
       pdf.setLineWidth(0.5);
-      pdf.line(20, 75, pageWidth - 20, 75);
+      pdf.line(20, 82, pageWidth - 20, 82);
       
       // Daily breakdown section
       pdf.setFont("helvetica", "bold");
       pdf.setFontSize(12);
-      pdf.text("DAILY BREAKDOWN", 20, 85);
+      pdf.text("DAILY BREAKDOWN", 20, 92);
       
       // Table headers with background
-      pdf.setFillColor(...secondaryColor);
-      pdf.rect(20, 90, pageWidth - 40, 8, 'F');
+      pdf.setFillColor(secondaryColorR, secondaryColorG, secondaryColorB);
+      pdf.rect(20, 97, pageWidth - 40, 8, 'F');
       
-      pdf.setTextColor(...textColor);
+      pdf.setTextColor(textColorR, textColorG, textColorB);
       pdf.setFontSize(10);
       pdf.setFont("helvetica", "bold");
-      pdf.text("Date", 25, 95);
-      pdf.text("Morning", 55, 95);
-      pdf.text("Evening", 85, 95);
-      pdf.text("Total Qty", 115, 95);
-      pdf.text("Rate", 145, 95);
-      pdf.text("Amount", 165, 95);
-      pdf.text("Grocery", 185, 95);
+      pdf.text("Date", 25, 102);
+      pdf.text("Morning", 55, 102);
+      pdf.text("Evening", 85, 102);
+      pdf.text("Total Qty", 115, 102);
+      pdf.text("Rate", 145, 102);
+      pdf.text("Amount", 165, 102);
+      pdf.text("Grocery", 185, 102);
       
       // Table content
-      let y = 105;
+      let y = 112;
       const daysInMonth = getDaysInMonth(selectedDate);
       let rowCount = 0;
       
@@ -434,13 +515,13 @@ export const CustomerBills = () => {
           
           // Print the day's summary
           pdf.setFont("helvetica", "normal");
-          pdf.setTextColor(...textColor);
+          pdf.setTextColor(textColorR, textColorG, textColorB);
           pdf.setFontSize(9);
           
           pdf.text(day.toString().padStart(2, '0'), 25, y);
-          pdf.text(morningQty > 0 ? `${morningQty.toFixed(2)}L` : '-', 55, y);
-          pdf.text(eveningQty > 0 ? `${eveningQty.toFixed(2)}L` : '-', 85, y);
-          pdf.text(totalQty > 0 ? `${totalQty.toFixed(2)}L` : '-', 115, y);
+          pdf.text(morningQty > 0 ? `${morningQty.toFixed(1)}L` : '-', 55, y);
+          pdf.text(eveningQty > 0 ? `${eveningQty.toFixed(1)}L` : '-', 85, y);
+          pdf.text(totalQty > 0 ? `${totalQty.toFixed(1)}L` : '-', 115, y);
           pdf.text(totalQty > 0 ? `${Math.ceil(averageRate)}` : '-', 145, y);
           pdf.text(totalDayAmount > 0 ? `${totalDayAmount.toFixed(2)}` : '-', 165, y);
           
@@ -474,7 +555,7 @@ export const CustomerBills = () => {
                 pdf.setFontSize(6);
                 pdf.setTextColor(120, 120, 120);
                 pdf.text(`  (${item.description})`, 185, y);
-                pdf.setTextColor(...textColor);
+                pdf.setTextColor(textColorR, textColorG, textColorB);
               }
             });
             pdf.setFontSize(9);
@@ -496,7 +577,7 @@ export const CustomerBills = () => {
       }
       
       // Summary section with modern design
-      pdf.setFillColor(...primaryColor);
+      pdf.setFillColor(primaryColorR, primaryColorG, primaryColorB);
       pdf.rect(20, y - 5, pageWidth - 40, 8, 'F');
       
       pdf.setTextColor(255, 255, 255);
@@ -506,12 +587,12 @@ export const CustomerBills = () => {
       y += 15;
       
       // Summary items with clean layout
-      pdf.setTextColor(...textColor);
+      pdf.setTextColor(textColorR, textColorG, textColorB);
       pdf.setFont("helvetica", "normal");
       pdf.setFontSize(11);
       
       const summaryItems = [
-        [`Total Milk Quantity:`, `${totalMilk.toFixed(2)} Liters`],
+        [`Total Milk Quantity:`, `${totalMilk.toFixed(1)} Liters`],
         [`Milk Amount:`, `${totalMilkAmount.toFixed(2)}`],
         [`Grocery Amount:`, `${totalGroceryAmount.toFixed(2)}`],
         [`Monthly Total:`, `${totalMonthlyAmount.toFixed(2)}`]
@@ -532,13 +613,13 @@ export const CustomerBills = () => {
       pdf.setFillColor(255, 248, 220);
       pdf.rect(20, y - 8, pageWidth - 40, 15, 'F');
       
-      pdf.setDrawColor(...primaryColor);
+      pdf.setDrawColor(primaryColorR, primaryColorG, primaryColorB);
       pdf.setLineWidth(1);
       pdf.rect(20, y - 8, pageWidth - 40, 15);
       
       pdf.setFont("helvetica", "bold");
       pdf.setFontSize(14);
-      pdf.setTextColor(...primaryColor);
+      pdf.setTextColor(primaryColorR, primaryColorG, primaryColorB);
       pdf.text("TOTAL AMOUNT:", 25, y);
       pdf.text(`${Math.round(grandTotal)}`, 120, y);
       y += 20;
@@ -561,14 +642,16 @@ export const CustomerBills = () => {
       
       toast({
         title: "Success",
-        description: "Monthly bill downloaded successfully as PDF"
+        description: "Monthly bill downloaded successfully as PDF",
+        duration: 2000
       });
     } catch (error) {
       console.error('Error generating PDF:', error);
       toast({
         title: "Error",
         description: "Failed to generate PDF bill",
-        variant: "destructive"
+        variant: "destructive",
+        duration: 2000
       });
     }
   };
@@ -629,12 +712,12 @@ export const CustomerBills = () => {
           <div className="space-y-2">
             <h4 className="text-center font-medium text-gray-700 mb-3">Days 1-15</h4>
             
-            {/* Table Header - removed Type column */}
+            {/* Table Header */}
             <div className="grid grid-cols-4 bg-gray-100 text-xs font-medium text-gray-700 rounded-t-lg">
               <div className="p-2 text-center border-r">Date</div>
               <div className="p-2 text-center border-r">Time</div>
               <div className="p-2 text-center border-r">Qty(L)</div>
-              <div className="p-2 text-center">Grocery(₹)</div>
+              <div className="p-2 text-center">Grocery</div>
             </div>
             
             {/* Days 1-15 */}
@@ -666,7 +749,7 @@ export const CustomerBills = () => {
                   const groceryTotal = entry.grocery.total;
                   const groceryDescription = groceryItems.length > 0 
                     ? groceryItems.map(item => {
-                        let desc = `${item.name}: ₹${item.price.toFixed(2)}`;
+                        let desc = `${item.name}: ${item.price.toFixed(2)}`;
                         if (item.description) {
                           desc += ` (${item.description})`;
                         }
@@ -700,7 +783,7 @@ export const CustomerBills = () => {
                       >
                         {groceryTotal > 0 ? (
                           <div className="cursor-help">
-                            ₹{groceryTotal.toFixed(2)}
+                            {groceryTotal.toFixed(2)}
                           </div>
                         ) : '-'}
                       </div>
@@ -715,12 +798,12 @@ export const CustomerBills = () => {
           <div className="space-y-2">
             <h4 className="text-center font-medium text-gray-700 mb-3">Days 16-31</h4>
             
-            {/* Table Header - removed Type column */}
+            {/* Table Header */}
             <div className="grid grid-cols-4 bg-gray-100 text-xs font-medium text-gray-700 rounded-t-lg">
               <div className="p-2 text-center border-r">Date</div>
               <div className="p-2 text-center border-r">Time</div>
               <div className="p-2 text-center border-r">Qty(L)</div>
-              <div className="p-2 text-center">Grocery(₹)</div>
+              <div className="p-2 text-center">Grocery</div>
             </div>
             
             {/* Days 16-31 */}
@@ -754,7 +837,7 @@ export const CustomerBills = () => {
                   const groceryTotal = entry.grocery.total;
                   const groceryDescription = groceryItems.length > 0 
                     ? groceryItems.map(item => {
-                        let desc = `${item.name}: ₹${item.price.toFixed(2)}`;
+                        let desc = `${item.name}: ${item.price.toFixed(2)}`;
                         if (item.description) {
                           desc += ` (${item.description})`;
                         }
@@ -788,7 +871,7 @@ export const CustomerBills = () => {
                       >
                         {groceryTotal > 0 ? (
                           <div className="cursor-help">
-                            ₹{groceryTotal.toFixed(2)}
+                            {groceryTotal.toFixed(2)}
                           </div>
                         ) : '-'}
                       </div>
@@ -824,15 +907,15 @@ export const CustomerBills = () => {
                 </div>
                 <div className="flex justify-between items-center py-2 border-b border-gray-200">
                   <span className="text-sm font-medium text-gray-600">Milk Amount</span>
-                  <span className="text-lg font-bold text-blue-600">₹{totalMilkAmount.toFixed(2)}</span>
+                  <span className="text-lg font-bold text-blue-600">{totalMilkAmount.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between items-center py-2 border-b border-gray-200">
                   <span className="text-sm font-medium text-gray-600">Grocery Amount</span>
-                  <span className="text-lg font-bold text-green-600">₹{totalGroceryAmount.toFixed(2)}</span>
+                  <span className="text-lg font-bold text-green-600">{totalGroceryAmount.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between items-center py-2 border-b-2 border-gray-400">
                   <span className="text-base font-semibold text-gray-700">Total Monthly Amount</span>
-                  <span className="text-xl font-bold text-purple-600">₹{totalMonthlyAmount.toFixed(2)}</span>
+                  <span className="text-xl font-bold text-purple-600">{totalMonthlyAmount.toFixed(2)}</span>
                 </div>
               </div>
 
@@ -841,16 +924,16 @@ export const CustomerBills = () => {
                 {pendingBalance > 0 && (
                   <div className="flex justify-between items-center py-2 border-b border-gray-200">
                     <span className="text-sm font-medium text-gray-600">Previous Balance</span>
-                    <span className="text-lg font-bold text-red-600">₹{pendingBalance.toFixed(2)}</span>
+                    <span className="text-lg font-bold text-red-600">{pendingBalance.toFixed(2)}</span>
                   </div>
                 )}
                 <div className="flex justify-between items-center py-2 border-b border-gray-200">
                   <span className="text-sm font-medium text-gray-600">Current Month</span>
-                  <span className="text-lg font-bold text-purple-600">₹{totalMonthlyAmount.toFixed(2)}</span>
+                  <span className="text-lg font-bold text-purple-600">{totalMonthlyAmount.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between items-center py-3 bg-yellow-50 rounded-lg px-3 border-2 border-yellow-300">
                   <span className="text-lg font-bold text-gray-800">GRAND TOTAL</span>
-                  <span className="text-2xl font-bold text-orange-600">₹{grandTotal.toFixed(2)}</span>
+                  <span className="text-2xl font-bold text-orange-600">{grandTotal.toFixed(2)}</span>
                 </div>
               </div>
             </div>
@@ -868,7 +951,7 @@ export const CustomerBills = () => {
 
       {/* Filters */}
       <Card className="p-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Select Customer
@@ -927,6 +1010,20 @@ export const CustomerBills = () => {
           </div>
 
           <div className="flex items-end">
+            <Button
+              onClick={() => {
+                const customer = customers.find(c => c.id === selectedCustomer);
+                if (customer) sendWhatsAppBill(customer);
+              }}
+              disabled={!selectedCustomer || isLoading}
+              className="w-full flex items-center bg-green-600 hover:bg-green-700"
+            >
+              <MessageCircle className="h-4 w-4 mr-2" />
+              Send WhatsApp Bill
+            </Button>
+          </div>
+
+          <div className="flex items-end">
             <Dialog open={clearPasswordDialog} onOpenChange={setClearPasswordDialog}>
               <DialogTrigger asChild>
                 <Button
@@ -944,7 +1041,7 @@ export const CustomerBills = () => {
                 </DialogHeader>
                 <div className="space-y-4">
                   <p className="text-sm text-gray-600">
-                    This will clear the outstanding balance of ₹{pendingBalance.toFixed(2)} for this customer by recording a payment. Enter password to confirm:
+                    This will clear the outstanding balance of {pendingBalance.toFixed(2)} for this customer by recording a payment. Enter password to confirm:
                   </p>
                   <Input
                     type="password"

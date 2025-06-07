@@ -14,6 +14,7 @@ import { useNavigate } from 'react-router-dom';
 const Index = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [highlightCustomerId, setHighlightCustomerId] = useState<string | undefined>();
+  const [selectedCustomerForBill, setSelectedCustomerForBill] = useState<string | undefined>();
   const { user, signOut, loading } = useAuth();
   const navigate = useNavigate();
 
@@ -78,12 +79,17 @@ const Index = () => {
     setActiveTab('delivery');
   };
 
+  const handleViewRecords = (customerId: string) => {
+    setSelectedCustomerForBill(customerId);
+    setActiveTab('customer-bills');
+  };
+
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
         return <Dashboard onNavigate={setActiveTab} />;
       case 'customers':
-        return <CustomerManagement />;
+        return <CustomerManagement onViewRecords={handleViewRecords} />;
       case 'milk-types':
         return <MilkTypesManagement />;
       case 'delivery':
@@ -91,7 +97,7 @@ const Index = () => {
       case 'payments':
         return <PaymentTracking onNavigateToDelivery={handleNavigateToDelivery} />;
       case 'customer-bills':
-        return <CustomerBills />;
+        return <CustomerBills preSelectedCustomerId={selectedCustomerForBill} onViewRecords={handleViewRecords} />;
       default:
         return <Dashboard onNavigate={setActiveTab} />;
     }
@@ -101,6 +107,9 @@ const Index = () => {
   const handleTabChange = (tabId: string) => {
     if (tabId !== 'delivery') {
       setHighlightCustomerId(undefined);
+    }
+    if (tabId !== 'customer-bills') {
+      setSelectedCustomerForBill(undefined);
     }
     setActiveTab(tabId);
   };
