@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -486,11 +487,11 @@ export const CustomerBills = () => {
         y += 7;
       }
       
-      // Grand total with highlighting
+      // Grand total with highlighting - ROUNDED TO NEAREST RUPEE
       pdf.setFillColor(255, 245, 200);
       pdf.rect(35, y - 5, 140, 10, 'F');
       pdf.setFont("helvetica", "bold");
-      pdf.text(`GRAND TOTAL: ₹${grandTotal.toFixed(2)}`, 40, y);
+      pdf.text(`GRAND TOTAL: ₹${Math.round(grandTotal)}`, 40, y);
       y += 15;
       
       // Footer

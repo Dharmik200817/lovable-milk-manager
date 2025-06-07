@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -155,20 +154,73 @@ export const CustomerManagement = () => {
   };
 
   const handleDelete = async (customerId: string) => {
+    if (!confirm('Are you sure you want to delete this customer? This will also delete all their delivery records and payments.')) {
+      return;
+    }
+
     try {
       setIsLoading(true);
       
-      // Delete customer (this will cascade to related records)
-      const { error } = await supabase
+      // First, get the customer name for deletion of related records
+      const { data: customerData, error: customerFetchError } = await supabase
+        .from('customers')
+        .select('name')
+        .eq('id', customerId)
+        .single();
+
+      if (customerFetchError) throw customerFetchError;
+
+      // Delete related records in the correct order
+      
+      // 1. Delete grocery items for this customer's delivery records
+      const { error: groceryError } = await supabase
+        .from('grocery_items')
+        .delete()
+        .in('delivery_record_id', 
+          await supabase
+            .from('delivery_records')
+            .select('id')
+            .eq('customer_id', customerId)
+            .then(({ data }) => data?.map(d => d.id) || [])
+        );
+
+      if (groceryError) console.error('Error deleting grocery items:', groceryError);
+
+      // 2. Delete delivery records
+      const { error: deliveryError } = await supabase
+        .from('delivery_records')
+        .delete()
+        .eq('customer_id', customerId);
+
+      if (deliveryError) console.error('Error deleting delivery records:', deliveryError);
+
+      // 3. Delete payments by customer name
+      const { error: paymentsError } = await supabase
+        .from('payments')
+        .delete()
+        .eq('customer_name', customerData.name);
+
+      if (paymentsError) console.error('Error deleting payments:', paymentsError);
+
+      // 4. Delete customer balance
+      const { error: balanceError } = await supabase
+        .from('customer_balances')
+        .delete()
+        .eq('customer_id', customerId);
+
+      if (balanceError) console.error('Error deleting customer balance:', balanceError);
+
+      // 5. Finally, delete the customer
+      const { error: customerError } = await supabase
         .from('customers')
         .delete()
         .eq('id', customerId);
 
-      if (error) throw error;
+      if (customerError) throw customerError;
 
       toast({
         title: "Success",
-        description: "Customer deleted successfully"
+        description: "Customer and all related records deleted successfully"
       });
 
       // Reload customers
@@ -177,7 +229,7 @@ export const CustomerManagement = () => {
       console.error('Error deleting customer:', error);
       toast({
         title: "Error",
-        description: "Failed to delete customer",
+        description: "Failed to delete customer. Please try again.",
         variant: "destructive"
       });
     } finally {
