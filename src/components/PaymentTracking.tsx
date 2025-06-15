@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -176,7 +175,16 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
           notes: formData.notes.trim() || null
         });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error saving payment:', error);
+        toast({
+          title: "Error",
+          description: error.message || "Failed to save payment",
+          variant: "destructive",
+          duration: 2000
+        });
+        return;
+      }
 
       toast({
         title: "Success",
@@ -188,11 +196,11 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
       
       handleResetForm();
       setIsAddDialogOpen(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving payment:', error);
       toast({
         title: "Error",
-        description: "Failed to save payment",
+        description: error?.message || "Failed to save payment",
         variant: "destructive",
         duration: 2000
       });
