@@ -53,9 +53,9 @@ export const CustomerBillsHeader: React.FC<Props> = ({
   handleClearPayment
 }) => {
   return (
-    <div className="space-y-3 sm:space-y-0 sm:grid sm:grid-cols-1 md:grid-cols-5 sm:gap-4">
-      {/* Mobile: Stack vertically, Desktop: Grid layout */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-1 sm:gap-0">
+    <div className="space-y-3 sm:space-y-4">
+      {/* Customer and Date Selection Row */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
         <div>
           <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1 sm:mb-2">
             Customer
@@ -99,18 +99,16 @@ export const CustomerBillsHeader: React.FC<Props> = ({
         </div>
       </div>
       
-      {/* Desktop buttons - hidden on mobile */}
-      <div className="hidden sm:flex sm:items-end">
+      {/* Action Buttons Row - Desktop only */}
+      <div className="hidden sm:grid sm:grid-cols-3 gap-3 sm:gap-4">
         <Button
           onClick={generatePDF}
           disabled={!selectedCustomer || isLoading}
-          className="w-full flex items-center text-xs sm:text-sm h-10"
+          className="w-full flex items-center justify-center text-xs sm:text-sm h-10"
         >
           <FileText className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
           <span className="hidden lg:inline">Download </span>PDF
         </Button>
-      </div>
-      <div className="hidden sm:flex sm:items-end">
         <Button
           onClick={() => {
             const customer = customers.find(c => c.id === selectedCustomer);
@@ -121,19 +119,17 @@ export const CustomerBillsHeader: React.FC<Props> = ({
             }
           }}
           disabled={!selectedCustomer || isLoading || isUploadingPDF}
-          className="w-full flex items-center bg-green-600 hover:bg-green-700 text-xs sm:text-sm h-10"
+          className="w-full flex items-center justify-center bg-green-600 hover:bg-green-700 text-xs sm:text-sm h-10"
         >
           <MessageCircle className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
           <span className="hidden lg:inline">Send </span>WhatsApp
         </Button>
-      </div>
-      <div className="hidden sm:flex sm:items-end">
         <Dialog open={clearPasswordDialog} onOpenChange={setClearPasswordDialog}>
           <DialogTrigger asChild>
             <Button
               variant="destructive"
               disabled={!selectedCustomer || isLoading || pendingBalance <= 0}
-              className="w-full text-xs sm:text-sm h-10"
+              className="w-full flex items-center justify-center text-xs sm:text-sm h-10"
             >
               <Trash2 className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
               <span className="hidden lg:inline">Clear </span>Balance
