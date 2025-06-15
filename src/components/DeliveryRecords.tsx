@@ -29,15 +29,15 @@ import { generateDeliveryReport } from '@/utils/generate-delivery-report';
 interface DeliveryRecord {
   id: string;
   customer_id: string;
-  customer_name: string;
   delivery_date: string;
-  milk_type: string;
+  milk_type_id: string;
   quantity: number;
-  rate_per_liter: number;
+  price_per_liter: number;
   total_amount: number;
-  payment_status: boolean;
   notes?: string;
   created_at: string;
+  customers: { name: string } | null;
+  milk_types: { name: string } | null;
 }
 
 interface DeliveryRecordsProps {
@@ -67,7 +67,7 @@ export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) =
     loadCustomers();
     loadMilkTypes();
     loadDeliveryRecords();
-  }, []);
+  }, [highlightCustomerId]);
 
   const loadCustomers = async () => {
     try {
@@ -128,7 +128,7 @@ export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) =
       setIsLoading(true);
       let query = supabase
         .from('delivery_records')
-        .select('*')
+        .select('*, customers(name), milk_types(name)')
         .order('delivery_date', { ascending: false });
 
       if (highlightCustomerId) {
@@ -142,7 +142,7 @@ export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) =
         throw error;
       }
 
-      setDeliveryRecords(data || []);
+      setDeliveryRecords((data as any) || []);
     } catch (error) {
       console.error('Error loading delivery records:', error);
       toast({
@@ -158,8 +158,8 @@ export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) =
 
   const filteredRecords = deliveryRecords.filter(record => {
     const searchTermLower = searchTerm.toLowerCase();
-    const customerNameLower = record.customer_name.toLowerCase();
-    const milkTypeLower = record.milk_type.toLowerCase();
+    const customerNameLower = record.customers?.name?.toLowerCase() || '';
+    const milkTypeLower = record.milk_types?.name?.toLowerCase() || '';
 
     const matchesSearchTerm =
       customerNameLower.includes(searchTermLower) ||
@@ -212,7 +212,8 @@ export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) =
       setIsLoading(true);
 
       const deliveryDate = format(formData.deliveryDate, 'yyyy-MM-dd');
-      const totalAmount = quantity * selectedMilkType.price_per_liter;
+      const pricePerLiter = selectedMilkType.price_per_liter;
+      const totalAmount = quantity * pricePerLiter;
 
       if (editingRecord) {
         // Update existing record
@@ -220,11 +221,10 @@ export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) =
           .from('delivery_records')
           .update({
             customer_id: formData.customerId,
-            customer_name: selectedCustomer.name,
             delivery_date: deliveryDate,
-            milk_type: selectedMilkType.name,
+            milk_type_id: formData.milkType,
             quantity: quantity,
-            rate_per_liter: selectedMilkType.price_per_liter,
+            price_per_liter: pricePerLiter,
             total_amount: totalAmount,
             notes: formData.notes || null
           })
@@ -243,11 +243,10 @@ export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) =
           .from('delivery_records')
           .insert({
             customer_id: formData.customerId,
-            customer_name: selectedCustomer.name,
             delivery_date: deliveryDate,
-            milk_type: selectedMilkType.name,
+            milk_type_id: formData.milkType,
             quantity: quantity,
-            rate_per_liter: selectedMilkType.price_per_liter,
+            price_per_liter: pricePerLiter,
             total_amount: totalAmount,
             payment_status: false,
             notes: formData.notes || null
@@ -287,7 +286,7 @@ export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) =
     setFormData({
       customerId: record.customer_id,
       deliveryDate: new Date(record.delivery_date),
-      milkType: record.milk_type,
+      milkType: record.milk_type_id,
       quantity: record.quantity.toString(),
       notes: record.notes || ''
     });
@@ -523,9 +522,6 @@ export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) =
                   Amount
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Payment Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Actions
                 </th>
               </tr>
@@ -533,13 +529,13 @@ export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) =
             <tbody className="bg-white divide-y divide-gray-200">
               {isLoading ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
+                  <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
                     Loading delivery records...
                   </td>
                 </tr>
               ) : filteredRecords.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
+                  <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
                     No delivery records found. Add your first record to get started.
                   </td>
                 </tr>
@@ -550,22 +546,16 @@ export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) =
                       <div className="text-sm text-gray-900">{new Date(record.delivery_date).toLocaleDateString()}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="font-medium text-gray-900">{record.customer_name}</div>
+                      <div className="font-medium text-gray-900">{record.customers?.name}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{record.milk_type}</div>
+                      <div className="text-sm text-gray-900">{record.milk_types?.name}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">{record.quantity} L</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">₹{record.total_amount.toFixed(2)}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <Checkbox
-                        checked={record.payment_status}
-                        disabled
-                      />
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex space-x-2">
