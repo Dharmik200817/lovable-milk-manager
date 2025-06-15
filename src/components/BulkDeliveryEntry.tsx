@@ -356,7 +356,7 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
   const totalAmount = milkAmount + groceryAmount;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 pb-20 md:pb-4">
       <Card className="p-4">
         <div className="flex items-center gap-4">
           <Label htmlFor="delivery-date">Delivery Date:</Label>
@@ -509,7 +509,9 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
                 </p>
             </div>
         </div>
-        <div className="flex gap-4 mt-6">
+        
+        {/* Desktop buttons - hidden on mobile */}
+        <div className="hidden md:flex gap-4 mt-6">
             <Button variant="outline" className="w-full" onClick={handleSkipCustomer} disabled={isSaving}>
                 <SkipForward className="mr-2" /> Skip Customer
             </Button>
@@ -518,6 +520,16 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
             </Button>
         </div>
       </Card>
+      
+      {/* Mobile fixed bottom buttons */}
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t p-4 flex gap-4 md:hidden z-50">
+          <Button variant="outline" className="w-full" onClick={handleSkipCustomer} disabled={isSaving}>
+              <SkipForward className="mr-2" /> Skip Customer
+          </Button>
+          <Button className="w-full bg-green-600 hover:bg-green-700" onClick={handleSaveAndNext} disabled={isSaving}>
+              {isSaving ? 'Saving...' : <><ArrowRight className="mr-2" /> Save & Next</>}
+          </Button>
+      </div>
     </div>
   );
 };
