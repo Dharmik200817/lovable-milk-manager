@@ -384,6 +384,7 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
         selectedDate,
         monthlyData,
         pendingBalance,
+        monthlyPayments
       });
       if (!pdfBlob) throw new Error("Could not generate PDF");
 
@@ -574,6 +575,7 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
                 selectedDate,
                 monthlyData,
                 pendingBalance,
+                monthlyPayments
               });
               if (!pdfBlob) {
                 toast({ title: "Error", description: "PDF generation failed", variant: "destructive" });
@@ -724,6 +726,7 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
                   selectedDate,
                   monthlyData,
                   pendingBalance,
+                  monthlyPayments
                 });
                 if (!pdfBlob) {
                   toast({ title: "Error", description: "PDF generation failed", variant: "destructive" });

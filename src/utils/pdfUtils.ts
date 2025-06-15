@@ -1,4 +1,3 @@
-
 import { supabase } from "@/integrations/supabase/client";
 import { format, getDaysInMonth } from 'date-fns';
 import jsPDF from "jspdf";
@@ -45,11 +44,13 @@ export async function generatePDFBlob({
   selectedDate,
   monthlyData,
   pendingBalance,
+  monthlyPayments = 0, // <-- NEW
 }: {
   customer: BillCustomer;
   selectedDate: Date;
   monthlyData: BillMonthlyData;
   pendingBalance: number;
+  monthlyPayments?: number; // <-- NEW
 }) {
   try {
     const monthName = format(selectedDate, 'MMMM yyyy');
@@ -61,6 +62,8 @@ export async function generatePDFBlob({
     });
     const totalMonthlyAmount = totalMilkAmount + totalGroceryAmount;
     const grandTotal = totalMonthlyAmount + pendingBalance;
+    const pendingAfterPayment = Math.max(0, grandTotal - (monthlyPayments || 0));
+
     const pdf = new jsPDF();
     const pageWidth = pdf.internal.pageSize.getWidth();
     pdf.setFillColor(41,98,255); pdf.rect(0,0,pageWidth,35, 'F');
@@ -118,19 +121,23 @@ export async function generatePDFBlob({
         y+=8;rowCount++;
       }
     }
-    if(y>220){pdf.addPage();y=20;} else {y+=15;}
-    pdf.setFillColor(41,98,255); pdf.rect(20,y-5,pageWidth-40,8, 'F');
-    pdf.setTextColor(255,255,255); pdf.setFont("helvetica","bold"); pdf.setFontSize(12); pdf.text("BILL SUMMARY",25,y);
-    y+=15;
+    if (y > 220) {pdf.addPage(); y = 20;} else {y += 15;}
+    pdf.setFillColor(41,98,255); pdf.rect(20, y-5, pageWidth-40, 8, 'F');
+    pdf.setTextColor(255,255,255); pdf.setFont("helvetica","bold"); pdf.setFontSize(12); pdf.text("BILL SUMMARY", 25, y);
+    y += 15;
     pdf.setTextColor(51,65,85); pdf.setFont("helvetica","normal"); pdf.setFontSize(11);
+
+    // Always show previous balance (even if 0), always show payment and pending if payment made
     const summaryItems=[
       [`Total Milk Quantity:`,`${totalMilk} Liters`],
       [`Milk Amount:`,`${totalMilkAmount.toFixed(2)}`],
       [`Grocery Amount:`,`${totalGroceryAmount.toFixed(2)}`],
-      [`Monthly Total:`,`${totalMonthlyAmount.toFixed(2)}`]
+      [`Monthly Total:`,`${totalMonthlyAmount.toFixed(2)}`],
+      [`Previous Balance:`,`${pendingBalance.toFixed(2)}`]
     ];
-    if(pendingBalance>0){
-      summaryItems.push([`Previous Balance:`,`${pendingBalance.toFixed(2)}`]);
+    if (monthlyPayments > 0) {
+      summaryItems.push([`Payment Received:`, `${monthlyPayments.toFixed(2)}`]);
+      summaryItems.push([`Pending After Payment:`, `${pendingAfterPayment.toFixed(2)}`]);
     }
     summaryItems.forEach(([label,value])=>{
       pdf.text(label,25,y); pdf.text(value,120,y); y+=8;
