@@ -80,6 +80,49 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
     }
   };
 
+  const [monthlyPayments, setMonthlyPayments] = useState(0);
+
+  // Fetch payments made in the selected month
+  const loadMonthlyPayments = async () => {
+    if (!selectedCustomer) {
+      setMonthlyPayments(0);
+      return;
+    }
+    try {
+      const customer = customers.find(c => c.id === selectedCustomer);
+      if (!customer) {
+        setMonthlyPayments(0);
+        return;
+      }
+      const month = selectedDate.getMonth();
+      const year = selectedDate.getFullYear();
+      const startOfMonthStr = format(new Date(year, month, 1), 'yyyy-MM-dd');
+      const endOfMonthStr = format(new Date(year, month+1, 0), 'yyyy-MM-dd');
+
+      const { data: paymentsData, error: paymentsError } = await supabase
+        .from("payments")
+        .select("amount")
+        .eq("customer_name", customer.name)
+        .gte("payment_date", startOfMonthStr)
+        .lte("payment_date", endOfMonthStr);
+
+      if (paymentsError) throw paymentsError;
+      const total = paymentsData?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
+      setMonthlyPayments(total);
+    } catch (err) {
+      setMonthlyPayments(0);
+      console.error("Error loading payments for month:", err);
+    }
+  };
+
+  // Effect: reload monthly payments whenever customer or selectedDate changes
+  useEffect(() => {
+    if (selectedCustomer) {
+      loadMonthlyPayments();
+    }
+    // eslint-disable-next-line
+  }, [selectedCustomer, selectedDate, customers]);
+
   const loadPendingBalance = async () => {
     if (!selectedCustomer) return;
     
@@ -394,7 +437,9 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
     });
     const totalMonthlyAmount = totalMilkAmount + totalGroceryAmount;
     const grandTotal = totalMonthlyAmount + pendingBalance;
-    return { totalMilk, totalMilkAmount, totalGroceryAmount, totalMonthlyAmount, grandTotal };
+    // Calculate balance after payment
+    const pendingAfterPayment = Math.max(0, grandTotal - monthlyPayments);
+    return { totalMilk, totalMilkAmount, totalGroceryAmount, totalMonthlyAmount, grandTotal, pendingAfterPayment };
   };
 
   const {
@@ -403,6 +448,7 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
     totalGroceryAmount,
     totalMonthlyAmount,
     grandTotal,
+    pendingAfterPayment
   } = computeSummaryValues();
 
   const buildTableRows = () => {
@@ -618,12 +664,44 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
                     <p className="text-base sm:text-xl font-bold text-orange-600">₹{grandTotal.toFixed(0)}</p>
                   </div>
                 </div>
-                
-                {pendingBalance > 0 && (
-                  <div className="mt-3 sm:mt-4 text-center">
-                    <div className="inline-block bg-red-50 px-3 sm:px-4 py-2 rounded border-2 border-red-200">
-                      <p className="text-xs sm:text-sm text-gray-600">Previous Balance: <span className="text-red-600 font-bold">₹{pendingBalance.toFixed(0)}</span></p>
+
+                {/* Always show previous balance */}
+                <div className="mt-3 text-center">
+                  <div className="inline-block bg-red-50 px-3 sm:px-4 py-2 rounded border-2 border-red-200">
+                    <p className="text-xs sm:text-sm text-gray-600">
+                      Previous Balance: <span className="text-red-600 font-bold">₹{pendingBalance.toFixed(0)}</span>
+                    </p>
+                  </div>
+                </div>
+
+                {/* Show payments made this month IF any */}
+                {monthlyPayments > 0 && (
+                  <div className="mt-3 text-center">
+                    <div className="inline-block bg-green-50 px-3 sm:px-4 py-2 rounded border-2 border-green-200">
+                      <p className="text-xs sm:text-sm text-gray-600">
+                        Payment Received: <span className="text-green-700 font-bold">₹{monthlyPayments.toFixed(0)}</span>
+                      </p>
                     </div>
+                  </div>
+                )}
+
+                {/* If payment is partial, show pending after payment */}
+                {monthlyPayments > 0 && pendingAfterPayment > 0 && (
+                  <div className="mt-3 text-center">
+                    <div className="inline-block bg-yellow-50 px-3 sm:px-4 py-2 rounded border-2 border-yellow-400">
+                      <p className="text-xs sm:text-sm text-gray-800 font-semibold">
+                        Pending After Payment: <span className="text-orange-600 font-bold">₹{pendingAfterPayment.toFixed(0)}</span>
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* If the bill is fully paid, show a badge */}
+                {monthlyPayments > 0 && pendingAfterPayment === 0 && (
+                  <div className="mt-3 text-center">
+                    <span className="inline-block bg-green-100 text-green-800 font-bold rounded px-4 py-2 border border-green-300">
+                      Bill fully paid!
+                    </span>
                   </div>
                 )}
               </div>
