@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -49,18 +50,20 @@ interface PaymentTrackingProps {
   onNavigateToDelivery?: (customerId: string) => void;
 }
 
+const getInitialFormData = () => ({
+  customer_name: '',
+  amount: '',
+  payment_date: new Date().toISOString(),
+  payment_method: 'Cash',
+  notes: ''
+});
+
 export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) => {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [formData, setFormData] = useState({
-    customer_name: '',
-    amount: '',
-    payment_date: '',
-    payment_method: '',
-    notes: ''
-  });
+  const [formData, setFormData] = useState(getInitialFormData());
   const [date, setDate] = useState<Date | undefined>(new Date());
 
   useEffect(() => {
@@ -119,6 +122,18 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
     }
   };
 
+  const handleResetForm = () => {
+    setFormData(getInitialFormData());
+    setDate(new Date());
+  };
+
+  const handleOpenChange = (open: boolean) => {
+    if (open) {
+      handleResetForm();
+    }
+    setIsAddDialogOpen(open);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -171,8 +186,7 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
 
       await loadPayments();
       
-      setFormData({ customer_name: '', amount: '', payment_date: '', payment_method: '', notes: '' });
-      setDate(undefined);
+      handleResetForm();
       setIsAddDialogOpen(false);
     } catch (error) {
       console.error('Error saving payment:', error);
@@ -192,7 +206,7 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
       <div className="flex items-center justify-between">
         <h2 className="text-xl sm:text-3xl font-bold text-gray-900">Payment Tracking</h2>
         
-        <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+        <Dialog open={isAddDialogOpen} onOpenChange={handleOpenChange}>
           <DialogTrigger asChild>
             <Button className="bg-green-600 hover:bg-green-700" disabled={isLoading}>
               <Plus className="h-4 w-4 mr-2" />
@@ -256,9 +270,9 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
                     <Calendar
                       mode="single"
                       selected={date}
-                      onSelect={(date) => {
-                        setDate(date)
-                        setFormData({ ...formData, payment_date: date?.toISOString() || '' })
+                      onSelect={(newDate) => {
+                        setDate(newDate);
+                        setFormData({ ...formData, payment_date: newDate?.toISOString() || '' });
                       }}
                       disabled={isLoading}
                       initialFocus
@@ -294,11 +308,7 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
                 <Button 
                   type="button" 
                   variant="outline" 
-                  onClick={() => {
-                    setIsAddDialogOpen(false);
-                    setFormData({ customer_name: '', amount: '', payment_date: '', payment_method: '', notes: '' });
-                    setDate(undefined);
-                  }}
+                  onClick={() => setIsAddDialogOpen(false)}
                   disabled={isLoading}
                 >
                   Cancel
