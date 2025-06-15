@@ -374,46 +374,69 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
     const firstDay = startOfMonth(selectedDate);
     const rows: any[] = [];
     
+    // Create rows for left and right columns (traditional milk card format)
+    const leftColumnDays = [];
+    const rightColumnDays = [];
+    
     for (let d = 1; d <= daysInMonth; d++) {
-      const dateObj = addDays(firstDay, d - 1);
-      const dateStr = format(dateObj, "yyyy-MM-dd");
-      const readableDate = format(dateObj, "dd MMM");
-      const dayData = monthlyData[dateStr];
+      if (d <= 15) {
+        leftColumnDays.push(d);
+      } else {
+        rightColumnDays.push(d);
+      }
+    }
+
+    const maxRows = Math.max(leftColumnDays.length, rightColumnDays.length);
+    
+    for (let i = 0; i < maxRows; i++) {
+      const leftDay = leftColumnDays[i];
+      const rightDay = rightColumnDays[i];
       
-      const morning = dayData?.entries.find(e =>
-        e.time.toLowerCase().includes('morning')
-      );
-      const evening = dayData?.entries.find(e =>
-        e.time.toLowerCase().includes('evening')
-      );
-      
-      const groceryItems = morning?.grocery.items.length > 0 
-        ? morning.grocery.items.map((item, idx) =>
-            <span key={idx} className="text-xs">
-              {item.name}
-              {item.price ? ` (₹${item.price})` : ""}
-              {idx !== morning.grocery.items.length - 1 ? ', ' : ''}
-            </span>
-          )
-        : <span className="text-gray-400 text-xs">–</span>;
+      const getDataForDay = (day: number | undefined) => {
+        if (!day) return { morning: '', evening: '', grocery: '' };
+        
+        const dateObj = addDays(firstDay, day - 1);
+        const dateStr = format(dateObj, "yyyy-MM-dd");
+        const dayData = monthlyData[dateStr];
+        
+        const morning = dayData?.entries.find(e => e.time.toLowerCase().includes('morning'));
+        const evening = dayData?.entries.find(e => e.time.toLowerCase().includes('evening'));
+        
+        const morningQty = morning ? `${morning.milkQuantity.toFixed(1)}L` : '';
+        const eveningQty = evening ? `${evening.milkQuantity.toFixed(1)}L` : '';
+        const groceryTotal = dayData?.totalGroceryAmount > 0 ? `₹${dayData.totalGroceryAmount.toFixed(0)}` : '';
+        
+        return { morning: morningQty, evening: eveningQty, grocery: groceryTotal };
+      };
+
+      const leftData = getDataForDay(leftDay);
+      const rightData = getDataForDay(rightDay);
 
       rows.push(
-        <TableRow key={dateStr}>
-          <TableCell className="p-1 sm:p-2 text-xs font-medium">{readableDate}</TableCell>
-          <TableCell className="p-1 sm:p-2 text-xs text-blue-700">
-            {morning
-              ? `${(morning.milkQuantity || 0).toFixed(1)}L` +
-                (morning.milkType ? ` (${morning.milkType.substring(0, 3)})` : "")
-              : <span className="text-gray-400">–</span>}
+        <TableRow key={i} className="border-b">
+          <TableCell className="text-center text-sm font-medium p-2 w-12 border-r">
+            {leftDay || ''}
           </TableCell>
-          <TableCell className="p-1 sm:p-2 text-xs text-purple-700">
-            {evening
-              ? `${(evening.milkQuantity || 0).toFixed(1)}L` +
-                (evening.milkType ? ` (${evening.milkType.substring(0, 3)})` : "")
-              : <span className="text-gray-400">–</span>}
+          <TableCell className="text-center text-xs p-1 w-16 border-r text-blue-600">
+            {leftData.morning}
           </TableCell>
-          <TableCell className="p-1 sm:p-2 text-xs text-green-700">
-            {groceryItems}
+          <TableCell className="text-center text-xs p-1 w-16 border-r text-purple-600">
+            {leftData.evening}
+          </TableCell>
+          <TableCell className="text-center text-xs p-1 w-20 border-r text-green-600">
+            {leftData.grocery}
+          </TableCell>
+          <TableCell className="text-center text-sm font-medium p-2 w-12 border-r">
+            {rightDay || ''}
+          </TableCell>
+          <TableCell className="text-center text-xs p-1 w-16 border-r text-blue-600">
+            {rightData.morning}
+          </TableCell>
+          <TableCell className="text-center text-xs p-1 w-16 border-r text-purple-600">
+            {rightData.evening}
+          </TableCell>
+          <TableCell className="text-center text-xs p-1 w-20 text-green-600">
+            {rightData.grocery}
           </TableCell>
         </TableRow>
       );
@@ -423,7 +446,7 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20 sm:pb-4">
-      <div className="max-w-4xl mx-auto px-2 sm:px-4 pt-4 sm:pt-6">
+      <div className="max-w-6xl mx-auto px-2 sm:px-4 pt-4 sm:pt-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg sm:text-2xl font-bold text-gray-900">Customer Bills</h2>
         </div>
@@ -478,48 +501,70 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
           />
         </Card>
 
-        {/* Main Table Card */}
+        {/* Main Bill Card */}
         {selectedCustomer && (
           <Card className="bg-white shadow-sm rounded-lg border border-gray-200 mb-4">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-gray-50">
-                    <TableHead className="text-xs sm:text-sm font-semibold text-gray-700 p-2 sm:p-3">Date</TableHead>
-                    <TableHead className="text-xs sm:text-sm font-semibold text-blue-700 p-2 sm:p-3">Morning</TableHead>
-                    <TableHead className="text-xs sm:text-sm font-semibold text-purple-700 p-2 sm:p-3">Evening</TableHead>
-                    <TableHead className="text-xs sm:text-sm font-semibold text-green-700 p-2 sm:p-3">Grocery</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {buildTableRows()}
-                </TableBody>
-                <TableFooter>
-                  <TableRow className="bg-gray-50 border-t-2">
-                    <TableCell className="p-2 font-bold text-xs sm:text-sm">Total:</TableCell>
-                    <TableCell className="p-2 font-bold text-blue-800 text-xs sm:text-sm">
-                      {totalMilk.toFixed(1)}L
-                      <div className="text-xs text-gray-500">(₹{totalMilkAmount.toFixed(2)})</div>
-                    </TableCell>
-                    <TableCell className="p-2 text-xs sm:text-sm">–</TableCell>
-                    <TableCell className="p-2 font-bold text-green-800 text-xs sm:text-sm">₹{totalGroceryAmount.toFixed(2)}</TableCell>
-                  </TableRow>
-                  <TableRow className="bg-blue-50">
-                    <TableCell className="p-2 font-bold text-xs sm:text-sm">Monthly:</TableCell>
-                    <TableCell className="p-2 font-bold text-blue-700 text-xs sm:text-sm" colSpan={3}>₹{totalMonthlyAmount.toFixed(2)}</TableCell>
-                  </TableRow>
-                  {pendingBalance > 0 && (
-                    <TableRow className="bg-orange-50">
-                      <TableCell className="p-2 font-semibold text-xs sm:text-sm">Previous:</TableCell>
-                      <TableCell className="p-2 font-semibold text-red-700 text-xs sm:text-sm" colSpan={3}>₹{pendingBalance.toFixed(2)}</TableCell>
+            <div className="p-4 sm:p-6">
+              {/* Bill Header */}
+              <div className="text-center mb-6 border-b-2 border-blue-500 pb-4">
+                <h1 className="text-2xl sm:text-3xl font-bold text-blue-600 mb-2">NARMADA DAIRY</h1>
+                <h2 className="text-lg sm:text-xl font-semibold text-gray-700">Monthly Bill</h2>
+                <div className="mt-3 text-sm text-gray-600">
+                  <p className="font-medium">{customers.find(c => c.id === selectedCustomer)?.name}</p>
+                  <p>{format(selectedDate, 'MMMM yyyy')}</p>
+                </div>
+              </div>
+
+              {/* Traditional Table Layout */}
+              <div className="overflow-x-auto mb-6">
+                <Table className="w-full border-2 border-gray-400">
+                  <TableHeader>
+                    <TableRow className="bg-blue-50 border-b-2 border-gray-400">
+                      <TableHead className="text-center text-sm font-bold border-r border-gray-400 p-2">Date</TableHead>
+                      <TableHead className="text-center text-sm font-bold border-r border-gray-400 p-1">Morning</TableHead>
+                      <TableHead className="text-center text-sm font-bold border-r border-gray-400 p-1">Evening</TableHead>
+                      <TableHead className="text-center text-sm font-bold border-r border-gray-400 p-1">Grocery</TableHead>
+                      <TableHead className="text-center text-sm font-bold border-r border-gray-400 p-2">Date</TableHead>
+                      <TableHead className="text-center text-sm font-bold border-r border-gray-400 p-1">Morning</TableHead>
+                      <TableHead className="text-center text-sm font-bold border-r border-gray-400 p-1">Evening</TableHead>
+                      <TableHead className="text-center text-sm font-bold p-1">Grocery</TableHead>
                     </TableRow>
-                  )}
-                  <TableRow className="bg-yellow-100">
-                    <TableCell className="p-2 font-bold text-xs sm:text-sm">Grand Total:</TableCell>
-                    <TableCell className="p-2 font-bold text-orange-700 text-sm sm:text-base" colSpan={3}>₹{grandTotal.toFixed(2)}</TableCell>
-                  </TableRow>
-                </TableFooter>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {buildTableRows()}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Summary Section */}
+              <div className="border-t-2 border-gray-300 pt-4">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
+                  <div className="bg-blue-50 p-3 rounded">
+                    <p className="text-xs text-gray-600">Total Milk</p>
+                    <p className="text-lg font-bold text-blue-600">{totalMilk.toFixed(1)}L</p>
+                  </div>
+                  <div className="bg-green-50 p-3 rounded">
+                    <p className="text-xs text-gray-600">Milk Amount</p>
+                    <p className="text-lg font-bold text-green-600">₹{totalMilkAmount.toFixed(0)}</p>
+                  </div>
+                  <div className="bg-purple-50 p-3 rounded">
+                    <p className="text-xs text-gray-600">Grocery</p>
+                    <p className="text-lg font-bold text-purple-600">₹{totalGroceryAmount.toFixed(0)}</p>
+                  </div>
+                  <div className="bg-yellow-50 p-3 rounded border-2 border-yellow-400">
+                    <p className="text-xs text-gray-600">Grand Total</p>
+                    <p className="text-xl font-bold text-orange-600">₹{grandTotal.toFixed(0)}</p>
+                  </div>
+                </div>
+                
+                {pendingBalance > 0 && (
+                  <div className="mt-4 text-center">
+                    <div className="inline-block bg-red-50 px-4 py-2 rounded border-2 border-red-200">
+                      <p className="text-sm text-gray-600">Previous Balance: <span className="text-red-600 font-bold">₹{pendingBalance.toFixed(0)}</span></p>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </Card>
         )}
