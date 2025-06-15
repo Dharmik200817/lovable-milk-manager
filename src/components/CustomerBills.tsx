@@ -117,8 +117,14 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
 
     try {
       setIsLoading(true);
-      const startDate = format(startOfMonth(selectedDate), 'yyyy-MM-dd');
-      const endDate = format(addDays(startOfMonth(selectedDate), getDaysInMonth(selectedDate) - 1), 'yyyy-MM-dd');
+      
+      // Fix date range calculation to match the selected month properly
+      const year = selectedDate.getFullYear();
+      const month = selectedDate.getMonth();
+      const startDate = format(new Date(year, month, 1), 'yyyy-MM-dd');
+      const endDate = format(new Date(year, month + 1, 0), 'yyyy-MM-dd'); // Last day of the month
+
+      console.log('Loading data for date range:', { startDate, endDate, selectedCustomer });
 
       const { data: deliveryData, error: deliveryError } = await supabase
         .from('delivery_records')
@@ -133,9 +139,12 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
         `)
         .eq('customer_id', selectedCustomer)
         .gte('delivery_date', startDate)
-        .lte('delivery_date', endDate);
+        .lte('delivery_date', endDate)
+        .order('delivery_date');
 
       if (deliveryError) throw deliveryError;
+
+      console.log('Delivery data loaded:', deliveryData);
 
       const { data: groceryData, error: groceryError } = await supabase
         .from('grocery_items')
@@ -151,6 +160,8 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
 
       if (groceryError) throw groceryError;
 
+      console.log('Grocery data loaded:', groceryData);
+
       const monthData: MonthlyData = {};
 
       deliveryData?.forEach(record => {
@@ -158,6 +169,8 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
         const entryTime = record.notes?.toLowerCase().includes('evening') ? 'Evening' : 'Morning';
         const milkQuantity = record.quantity;
         const milkAmount = record.quantity * record.price_per_liter;
+        
+        console.log('Processing delivery record:', { date, entryTime, milkQuantity, milkAmount });
         
         if (!monthData[date]) {
           monthData[date] = {
@@ -205,6 +218,7 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
         }
       });
 
+      console.log('Final monthly data:', monthData);
       setMonthlyData(monthData);
     } catch (error) {
       console.error('Error loading monthly data:', error);
@@ -375,6 +389,10 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
     const firstDay = startOfMonth(selectedDate);
     const rows: any[] = [];
     
+    console.log('Building table rows for month:', format(selectedDate, 'MMMM yyyy'));
+    console.log('Days in month:', daysInMonth);
+    console.log('Monthly data keys:', Object.keys(monthlyData));
+    
     // Create rows for left and right columns (traditional milk card format)
     const leftColumnDays = [];
     const rightColumnDays = [];
@@ -396,9 +414,11 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
       const getDataForDay = (day: number | undefined) => {
         if (!day) return { morning: '', evening: '', grocery: '' };
         
-        const dateObj = addDays(firstDay, day - 1);
+        const dateObj = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day);
         const dateStr = format(dateObj, "yyyy-MM-dd");
         const dayData = monthlyData[dateStr];
+        
+        console.log(`Day ${day} (${dateStr}):`, dayData ? 'has data' : 'no data');
         
         if (!dayData || !dayData.hasDelivery) {
           return { morning: '', evening: '', grocery: '' };
