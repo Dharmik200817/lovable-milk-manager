@@ -28,10 +28,7 @@ interface MilkType {
 }
 
 interface GroceryItem {
-  id?: string;
   name: string;
-  quantity: number;
-  unit: string;
   price: number;
 }
 
@@ -59,8 +56,6 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
   const [isGroceryOnly, setIsGroceryOnly] = useState(false);
   const [newGroceryItem, setNewGroceryItem] = useState<GroceryItem>({
     name: '',
-    quantity: 0,
-    unit: 'kg',
     price: 0
   });
 
@@ -145,44 +140,6 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
           }
         }
       }
-
-      // Get the most recent grocery items for this customer
-      const { data: groceryData, error: groceryError } = await supabase
-        .from('grocery_items')
-        .select(`
-          name, quantity, unit, price,
-          delivery_records!inner(customer_id, delivery_date)
-        `)
-        .eq('delivery_records.customer_id', customerId)
-        .order('delivery_records.delivery_date', { ascending: false })
-        .limit(10);
-
-      if (groceryError) throw groceryError;
-
-      if (groceryData && groceryData.length > 0) {
-        // Group items by name and get the most recent for each
-        const latestItems = groceryData.reduce((acc: {[key: string]: GroceryItem}, item: any) => {
-          if (!acc[item.name]) {
-            acc[item.name] = {
-              name: item.name,
-              quantity: item.quantity,
-              unit: item.unit,
-              price: item.price
-            };
-          }
-          return acc;
-        }, {});
-
-        // Auto-fill grocery items
-        setEntries(prevEntries => {
-          const newEntries = [...prevEntries];
-          if (newEntries[currentEntryIndex]) {
-            newEntries[currentEntryIndex].groceryItems = Object.values(latestItems);
-          }
-          return newEntries;
-        });
-      }
-
     } catch (error: any) {
       console.error("Error loading previous record:", error);
       // Don't show error toast for this as it's not critical
@@ -214,11 +171,11 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
   };
 
   const addGroceryItem = () => {
-    if (!newGroceryItem.name || newGroceryItem.quantity <= 0 || newGroceryItem.price <= 0) {
+    if (!newGroceryItem.name || newGroceryItem.price <= 0) {
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Please fill all grocery item fields."
+        description: "Please fill grocery item name and price."
       });
       return;
     }
@@ -233,8 +190,6 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
 
     setNewGroceryItem({
       name: '',
-      quantity: 0,
-      unit: 'kg',
       price: 0
     });
   };
@@ -292,12 +247,23 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
         const deliveryDate = format(selectedDate, 'yyyy-MM-dd');
         let deliveryRecordId = null;
 
+        // Calculate grocery total
+        const groceryAmount = entry.groceryItems.reduce((sum, item) => sum + item.price, 0);
+
         // Save milk delivery if not grocery only
         if (!isGroceryOnly && entry.quantityInMl > 0 && entry.milkTypeId) {
             const milkType = milkTypes.find(mt => mt.id === entry.milkTypeId);
             if (milkType) {
                 const quantityInLiters = entry.quantityInMl / 1000;
-                const totalAmount = quantityInLiters * milkType.price_per_liter;
+                const totalAmount = quantityInLiters * milkType.price_per_liter + groceryAmount;
+                
+                // Create notes with grocery info if there are grocery items
+                let notes = `Delivery Time: ${deliveryTime}`;
+                if (entry.groceryItems.length > 0) {
+                    const groceryNames = entry.groceryItems.map(item => `${item.name} (₹${item.price})`).join(', ');
+                    notes += ` | Grocery: ${groceryNames}`;
+                }
+                
                 const deliveryRecord = {
                     customer_id: entry.customerId,
                     delivery_date: deliveryDate,
@@ -305,7 +271,7 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
                     quantity: quantityInLiters,
                     price_per_liter: milkType.price_per_liter,
                     total_amount: totalAmount,
-                    notes: `Delivery Time: ${deliveryTime}`
+                    notes: notes
                 };
                 
                 const { data, error } = await supabase
@@ -317,47 +283,28 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
                 if (error) throw error;
                 deliveryRecordId = data.id;
             }
-        }
-
-        // Save grocery items if any
-        if (entry.groceryItems.length > 0) {
-            // If no milk delivery, create a delivery record for grocery items
-            if (!deliveryRecordId) {
-                const deliveryRecord = {
-                    customer_id: entry.customerId,
-                    delivery_date: deliveryDate,
-                    milk_type_id: milkTypes[0]?.id || '', // Use first milk type as placeholder
-                    quantity: 0,
-                    price_per_liter: 0,
-                    total_amount: 0,
-                    notes: `Grocery Only - Delivery Time: ${deliveryTime}`
-                };
-                
-                const { data, error } = await supabase
-                    .from('delivery_records')
-                    .insert([deliveryRecord])
-                    .select()
-                    .single();
-                
-                if (error) throw error;
-                deliveryRecordId = data.id;
-            }
-
-            // Insert grocery items
-            const groceryItemsToInsert = entry.groceryItems.map(item => ({
-                delivery_record_id: deliveryRecordId,
-                name: item.name,
-                quantity: item.quantity,
-                unit: item.unit,
-                price: item.price,
-                description: null
-            }));
-
-            const { error: groceryError } = await supabase
-                .from('grocery_items')
-                .insert(groceryItemsToInsert);
-
-            if (groceryError) throw groceryError;
+        } else if (entry.groceryItems.length > 0) {
+            // If grocery only, create a delivery record for grocery items
+            const groceryNames = entry.groceryItems.map(item => `${item.name} (₹${item.price})`).join(', ');
+            
+            const deliveryRecord = {
+                customer_id: entry.customerId,
+                delivery_date: deliveryDate,
+                milk_type_id: milkTypes[0]?.id || '', // Use first milk type as placeholder
+                quantity: 0,
+                price_per_liter: 0,
+                total_amount: groceryAmount,
+                notes: `Grocery Only - Delivery Time: ${deliveryTime} | Grocery: ${groceryNames}`
+            };
+            
+            const { data, error } = await supabase
+                .from('delivery_records')
+                .insert([deliveryRecord])
+                .select()
+                .single();
+            
+            if (error) throw error;
+            deliveryRecordId = data.id;
         }
         
         toast({
@@ -396,7 +343,7 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
   const selectedMilkType = milkTypes.find(mt => mt.id === currentEntry?.milkTypeId);
   const quantityInLiters = currentEntry?.quantityInMl / 1000 || 0;
   const milkAmount = quantityInLiters * (selectedMilkType?.price_per_liter || 0);
-  const groceryAmount = currentEntry?.groceryItems.reduce((sum, item) => sum + (item.quantity * item.price), 0) || 0;
+  const groceryAmount = currentEntry?.groceryItems.reduce((sum, item) => sum + item.price, 0) || 0;
   const totalAmount = milkAmount + groceryAmount;
 
   return (
@@ -483,11 +430,11 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
             </div>
 
             <div>
-                <Label>Grocery Items</Label>
+                <Label>Grocery Items (Optional)</Label>
                 
                 {/* Add new grocery item */}
                 <div className="mt-2 border-dashed border-2 border-gray-300 p-4 rounded-md space-y-3">
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+                    <div className="grid grid-cols-2 gap-2">
                         <Input
                             placeholder="Item name"
                             value={newGroceryItem.name}
@@ -495,25 +442,7 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
                         />
                         <Input
                             type="number"
-                            placeholder="Quantity"
-                            value={newGroceryItem.quantity || ''}
-                            onChange={e => setNewGroceryItem({...newGroceryItem, quantity: parseFloat(e.target.value) || 0})}
-                        />
-                        <Select value={newGroceryItem.unit} onValueChange={value => setNewGroceryItem({...newGroceryItem, unit: value})}>
-                            <SelectTrigger>
-                                <SelectValue placeholder="Unit" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="kg">kg</SelectItem>
-                                <SelectItem value="grams">grams</SelectItem>
-                                <SelectItem value="liters">liters</SelectItem>
-                                <SelectItem value="pieces">pieces</SelectItem>
-                                <SelectItem value="packets">packets</SelectItem>
-                            </SelectContent>
-                        </Select>
-                        <Input
-                            type="number"
-                            placeholder="Price per unit"
+                            placeholder="Price (₹)"
                             value={newGroceryItem.price || ''}
                             onChange={e => setNewGroceryItem({...newGroceryItem, price: parseFloat(e.target.value) || 0})}
                         />
@@ -534,32 +463,16 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
                                     value={item.name}
                                     onChange={e => updateGroceryItem(index, 'name', e.target.value)}
                                     className="flex-1"
+                                    placeholder="Item name"
                                 />
-                                <Input
-                                    type="number"
-                                    value={item.quantity}
-                                    onChange={e => updateGroceryItem(index, 'quantity', parseFloat(e.target.value) || 0)}
-                                    className="w-20"
-                                />
-                                <Select value={item.unit} onValueChange={value => updateGroceryItem(index, 'unit', value)}>
-                                    <SelectTrigger className="w-24">
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="kg">kg</SelectItem>
-                                        <SelectItem value="grams">grams</SelectItem>
-                                        <SelectItem value="liters">liters</SelectItem>
-                                        <SelectItem value="pieces">pieces</SelectItem>
-                                        <SelectItem value="packets">packets</SelectItem>
-                                    </SelectContent>
-                                </Select>
                                 <Input
                                     type="number"
                                     value={item.price}
                                     onChange={e => updateGroceryItem(index, 'price', parseFloat(e.target.value) || 0)}
-                                    className="w-20"
+                                    className="w-24"
+                                    placeholder="Price"
                                 />
-                                <span className="text-sm font-medium w-16">₹{(item.quantity * item.price).toFixed(2)}</span>
+                                <span className="text-sm font-medium w-16">₹{item.price.toFixed(2)}</span>
                                 <Button variant="ghost" size="sm" onClick={() => removeGroceryItem(index)}>
                                     <Trash2 className="h-4 w-4 text-red-500" />
                                 </Button>
