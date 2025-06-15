@@ -1,792 +1,406 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { Calendar as CalendarIcon, Plus, Trash2, ArrowRight, SkipForward } from 'lucide-react';
-import { format, addDays } from 'date-fns';
-import { cn } from '@/lib/utils';
+import { Checkbox } from '@/components/ui/checkbox';
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { toast } from '@/hooks/use-toast';
+import { cn } from "@/lib/utils"
+import { format } from 'date-fns';
+import { CalendarIcon, CheckCircle, Circle, Plus, Trash2 } from 'lucide-react';
+import { useToast } from "@/hooks/use-toast"
 import { supabase } from '@/integrations/supabase/client';
 
 interface Customer {
   id: string;
   name: string;
   address: string;
+  phone_number?: string;
 }
 
 interface MilkType {
   id: string;
   name: string;
   price_per_liter: number;
-  description: string;
 }
 
-interface GroceryItem {
-  id: string;
-  name: string;
-  total: number;
-}
-
-interface BulkEntry {
+interface DeliveryEntry {
   customerId: string;
   customerName: string;
-  milkTypeId: string;
-  milkTypeName: string;
-  quantity: number;
-  pricePerLiter: number;
-  groceryItems: GroceryItem[];
-  isGroceryOnly: boolean;
-  deliveryTime: 'Morning' | 'Evening';
-}
-
-interface CustomerMemory {
-  [customerId: string]: {
-    milkTypeId: string;
-    quantity: number;
+  milkTypeEntries: {
+    [milkTypeId: string]: number;
   };
 }
 
-interface DateBasedMemory {
-  [customerId: string]: {
-    milkTypeId: string;
-    quantity: number;
-  };
+interface BulkDeliveryEntryProps {
+  onClose: () => void;
 }
 
-export const BulkDeliveryEntry = () => {
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [milkTypes, setMilkTypes] = useState<MilkType[]>([]);
-  const [customerMemory, setCustomerMemory] = useState<CustomerMemory>({});
-  const [dateBasedMemory, setDateBasedMemory] = useState<DateBasedMemory>({});
-  const [currentCustomerIndex, setCurrentCustomerIndex] = useState(0);
-  const [autoSelectMode, setAutoSelectMode] = useState(true);
-  const [lastDeliveryTime, setLastDeliveryTime] = useState<'Morning' | 'Evening'>('Morning');
-  const [currentEntry, setCurrentEntry] = useState<BulkEntry>({
-    customerId: '',
-    customerName: '',
-    milkTypeId: '',
-    milkTypeName: '',
-    quantity: 0,
-    pricePerLiter: 0,
-    groceryItems: [],
-    isGroceryOnly: false,
-    deliveryTime: 'Morning'
-  });
-  const [isLoading, setIsLoading] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
+  const [currentEntryIndex, setCurrentEntryIndex] = useState(0);
+  const [entries, setEntries] = useState<DeliveryEntry[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isAllSelected, setIsAllSelected] = useState(false);
+  const [selectedCustomerIds, setSelectedCustomerIds] = useState<Set<string>>(new Set());
+  const { toast } = useToast()
 
   useEffect(() => {
-    loadCustomers();
-    loadMilkTypes();
-    loadCustomerMemory();
+    loadInitialData();
   }, []);
 
-  useEffect(() => {
-    loadDateBasedMemory();
-  }, [selectedDate]);
-
-  useEffect(() => {
-    if (autoSelectMode && customers.length > 0) {
-      const customer = customers[currentCustomerIndex];
-      if (customer) {
-        updateEntry('customerId', customer.id);
-      }
-    }
-  }, [currentCustomerIndex, customers, dateBasedMemory, autoSelectMode]);
-
-  const loadCustomers = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('customers')
-        .select('*')
-        .order('name');
-      
-      if (error) throw error;
-      setCustomers(data || []);
-    } catch (error) {
-      console.error('Error loading customers:', error);
-      toast({
-        title: "Error",
-        description: "Failed to load customers",
-        variant: "destructive"
-      });
-    }
-  };
-
-  const loadMilkTypes = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('milk_types')
-        .select('*')
-        .order('name');
-      
-      if (error) throw error;
-      setMilkTypes(data || []);
-    } catch (error) {
-      console.error('Error loading milk types:', error);
-      toast({
-        title: "Error",
-        description: "Failed to load milk types",
-        variant: "destructive"
-      });
-    }
-  };
-
-  const loadCustomerMemory = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('delivery_records')
-        .select('customer_id, milk_type_id, quantity')
-        .order('created_at', { ascending: false });
-      
-      if (error) throw error;
-
-      const memory: CustomerMemory = {};
-      data?.forEach(record => {
-        if (!memory[record.customer_id]) {
-          memory[record.customer_id] = {
-            milkTypeId: record.milk_type_id,
-            quantity: Math.round(record.quantity * 1000)
-          };
-        }
-      });
-      
-      setCustomerMemory(memory);
-    } catch (error) {
-      console.error('Error loading customer memory:', error);
-    }
-  };
-
-  const loadDateBasedMemory = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('delivery_records')
-        .select('customer_id, milk_type_id, quantity')
-        .eq('delivery_date', format(selectedDate, 'yyyy-MM-dd'))
-        .order('created_at', { ascending: false });
-      
-      if (error) throw error;
-
-      const dateMemory: DateBasedMemory = {};
-      data?.forEach(record => {
-        dateMemory[record.customer_id] = {
-          milkTypeId: record.milk_type_id,
-          quantity: Math.round(record.quantity * 1000)
-        };
-      });
-      
-      setDateBasedMemory(dateMemory);
-    } catch (error) {
-      console.error('Error loading date-based memory:', error);
-    }
-  };
-
-  const updateEntry = (field: keyof BulkEntry, value: string | number | boolean) => {
-    if (field === 'customerId') {
-      const customer = customers.find(c => c.id === value);
-      
-      const dateMemory = dateBasedMemory[value as string];
-      const generalMemory = customerMemory[value as string];
-      const memory = dateMemory || generalMemory;
-      
-      setCurrentEntry({
-        ...currentEntry,
-        customerId: value as string,
-        customerName: customer?.name || '',
-        milkTypeId: memory?.milkTypeId || '',
-        milkTypeName: memory?.milkTypeId ? milkTypes.find(m => m.id === memory.milkTypeId)?.name || '' : '',
-        quantity: memory?.quantity || 0,
-        pricePerLiter: memory?.milkTypeId ? Math.ceil(milkTypes.find(m => m.id === memory.milkTypeId)?.price_per_liter || 0) : 0,
-        deliveryTime: lastDeliveryTime // Use last delivery time
-      });
-    } else if (field === 'milkTypeId') {
-      const milk = milkTypes.find(m => m.id === value);
-      const roundedPrice = Math.ceil(milk?.price_per_liter || 0);
-      setCurrentEntry({
-        ...currentEntry,
-        milkTypeId: value as string,
-        milkTypeName: milk?.name || '',
-        pricePerLiter: roundedPrice
-      });
-    } else if (field === 'quantity') {
-      const numericValue = typeof value === 'string' ? parseFloat(value) || 0 : (typeof value === 'number' ? value : 0);
-      setCurrentEntry({ 
-        ...currentEntry, 
-        quantity: numericValue
-      });
-    } else if (field === 'isGroceryOnly') {
-      setCurrentEntry({ 
-        ...currentEntry, 
-        isGroceryOnly: value as boolean,
-        milkTypeId: value ? '' : currentEntry.milkTypeId,
-        milkTypeName: value ? '' : currentEntry.milkTypeName,
-        quantity: value ? 0 : currentEntry.quantity,
-        pricePerLiter: value ? 0 : currentEntry.pricePerLiter
-      });
-    } else if (field === 'deliveryTime') {
-      setCurrentEntry({ 
-        ...currentEntry, 
-        deliveryTime: value as 'Morning' | 'Evening'
-      });
-      setLastDeliveryTime(value as 'Morning' | 'Evening');
-    } else {
-      setCurrentEntry({ ...currentEntry, [field]: value });
-    }
-  };
-
-  const addGroceryItem = () => {
-    const newGroceryItem: GroceryItem = {
-      id: Date.now().toString(),
-      name: '',
-      total: 0
-    };
-    setCurrentEntry({
-      ...currentEntry,
-      groceryItems: [...currentEntry.groceryItems, newGroceryItem]
-    });
-  };
-
-  const updateGroceryItem = (itemIndex: number, field: keyof GroceryItem, value: string | number) => {
-    const updatedItems = [...currentEntry.groceryItems];
-    if (field === 'total') {
-      const numericValue = typeof value === 'string' ? Math.ceil(parseFloat(value) || 0) : Math.ceil(value);
-      updatedItems[itemIndex] = {
-        ...updatedItems[itemIndex],
-        total: numericValue
-      };
-    } else {
-      updatedItems[itemIndex] = {
-        ...updatedItems[itemIndex],
-        [field]: value
-      };
-    }
-    setCurrentEntry({
-      ...currentEntry,
-      groceryItems: updatedItems
-    });
-  };
-
-  const removeGroceryItem = (itemIndex: number) => {
-    setCurrentEntry({
-      ...currentEntry,
-      groceryItems: currentEntry.groceryItems.filter((_, i) => i !== itemIndex)
-    });
-  };
-
-  const calculateTotal = () => {
-    let milkTotal = 0;
-    if (!currentEntry.isGroceryOnly && currentEntry.quantity && currentEntry.pricePerLiter) {
-      const liters = currentEntry.quantity / 1000;
-      milkTotal = liters * currentEntry.pricePerLiter;
-    }
-    
-    const groceryTotal = currentEntry.groceryItems.reduce((sum, item) => {
-      return sum + item.total;
-    }, 0);
-    
-    return Math.ceil(milkTotal + groceryTotal);
-  };
-
-  const saveCurrentEntry = async () => {
-    if (!currentEntry.customerId) {
-      toast({
-        title: "Error",
-        description: "Please select a customer",
-        variant: "destructive"
-      });
-      return false;
-    }
-
-    if (!currentEntry.isGroceryOnly && (!currentEntry.milkTypeId || currentEntry.quantity <= 0)) {
-      toast({
-        title: "Error",
-        description: "Please fill in milk details or select grocery only mode",
-        variant: "destructive"
-      });
-      return false;
-    }
-
-    if (currentEntry.groceryItems.length === 0 && currentEntry.isGroceryOnly) {
-      toast({
-        title: "Error",
-        description: "Please add at least one grocery item",
-        variant: "destructive"
-      });
-      return false;
-    }
-
+  const loadInitialData = async () => {
     setIsLoading(true);
     try {
-      let deliveryRecordId = null;
-      
-      if (!currentEntry.isGroceryOnly && currentEntry.quantity > 0) {
-        const totalAmount = calculateTotal();
-        const quantityInLiters = currentEntry.quantity / 1000;
-        
-        const { data: deliveryData, error: deliveryError } = await supabase
-          .from('delivery_records')
-          .insert({
-            customer_id: currentEntry.customerId,
-            milk_type_id: currentEntry.milkTypeId,
-            quantity: quantityInLiters,
-            price_per_liter: currentEntry.pricePerLiter,
-            total_amount: totalAmount,
-            delivery_date: format(selectedDate, 'yyyy-MM-dd'),
-            notes: currentEntry.deliveryTime
-          })
-          .select()
-          .single();
+      const { data: customersData, error: customersError } = await supabase
+        .from('customers')
+        .select('id, name, address, phone_number')
+        .order('name');
 
-        if (deliveryError) {
-          console.error('Delivery error:', deliveryError);
-          throw deliveryError;
-        }
+      if (customersError) throw customersError;
 
-        deliveryRecordId = deliveryData.id;
-      }
+      const { data: milkTypesData, error: milkTypesError } = await supabase
+        .from('milk_types')
+        .select('id, name, price_per_liter')
+        .order('name');
 
-      if (currentEntry.groceryItems.length > 0) {
-        const groceryItemsToInsert = currentEntry.groceryItems
-          .filter(item => item.name && item.total > 0)
-          .map(item => ({
-            delivery_record_id: deliveryRecordId,
-            name: item.name,
-            quantity: 1,
-            unit: 'item',
-            price: Math.ceil(item.total),
-            description: ''
-          }));
+      if (milkTypesError) throw milkTypesError;
 
-        if (groceryItemsToInsert.length > 0) {
-          const { error: groceryError } = await supabase
-            .from('grocery_items')
-            .insert(groceryItemsToInsert);
-
-          if (groceryError) {
-            console.error('Grocery error:', groceryError);
-            throw groceryError;
-          }
-        }
-      }
-
-      const totalAmount = calculateTotal();
-      if (totalAmount > 0) {
-        const { data: existingBalance } = await supabase
-          .from('customer_balances')
-          .select('pending_amount')
-          .eq('customer_id', currentEntry.customerId)
-          .maybeSingle();
-
-        const newPendingAmount = Math.ceil((existingBalance?.pending_amount || 0) + totalAmount);
-
-        const { error: balanceError } = await supabase
-          .from('customer_balances')
-          .upsert({
-            customer_id: currentEntry.customerId,
-            pending_amount: newPendingAmount,
-            updated_at: new Date().toISOString()
-          }, {
-            onConflict: 'customer_id'
-          });
-
-        if (balanceError) {
-          console.error('Balance error:', balanceError);
-          throw balanceError;
-        }
-      }
-
-      if (!currentEntry.isGroceryOnly && currentEntry.milkTypeId && currentEntry.quantity > 0) {
-        setCustomerMemory(prev => ({
-          ...prev,
-          [currentEntry.customerId]: {
-            milkTypeId: currentEntry.milkTypeId,
-            quantity: currentEntry.quantity
-          }
-        }));
-        
-        setDateBasedMemory(prev => ({
-          ...prev,
-          [currentEntry.customerId]: {
-            milkTypeId: currentEntry.milkTypeId,
-            quantity: currentEntry.quantity
-          }
-        }));
-      }
-
-      return true;
-    } catch (error) {
-      console.error('Error saving entry:', error);
+      setCustomers(customersData || []);
+      setMilkTypes(milkTypesData || []);
+      setEntries(customersData ? customersData.map(c => ({
+        customerId: c.id,
+        customerName: c.name,
+        milkTypeEntries: {}
+      })) : []);
+    } catch (error: any) {
+      console.error("Error loading data:", error);
       toast({
+        variant: "destructive",
         title: "Error",
-        description: "Failed to save delivery record",
-        variant: "destructive"
+        description: "Failed to load customers and milk types."
       });
-      return false;
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleNext = async () => {
-    const saved = await saveCurrentEntry();
-    if (saved) {
-      toast({
-        title: "Success",
-        description: `Entry saved for ${currentEntry.customerName}`,
-      });
-      
-      const nextIndex = currentCustomerIndex + 1;
-      
-      // If we've reached the end of customers, move to next date
-      if (nextIndex >= customers.length) {
-        const nextDate = addDays(selectedDate, 1);
-        setSelectedDate(nextDate);
-        setCurrentCustomerIndex(0);
-        toast({
-          title: "Date Updated",
-          description: `Moved to next date: ${format(nextDate, 'dd/MM/yyyy')}`,
-        });
-      } else {
-        setCurrentCustomerIndex(nextIndex);
-      }
-      
-      setCurrentEntry({
-        customerId: '',
-        customerName: '',
-        milkTypeId: '',
-        milkTypeName: '',
-        quantity: 0,
-        pricePerLiter: 0,
-        groceryItems: [],
-        isGroceryOnly: false,
-        deliveryTime: lastDeliveryTime // Keep the delivery time for next customer
-      });
+  const handleDateSelect = (date: Date | undefined) => {
+    setSelectedDate(date);
+  };
+
+  const handleQuantityChange = (milkTypeId: string, quantity: number) => {
+    setEntries(prevEntries => {
+      const newEntries = [...prevEntries];
+      newEntries[currentEntryIndex] = {
+        ...newEntries[currentEntryIndex],
+        milkTypeEntries: {
+          ...newEntries[currentEntryIndex].milkTypeEntries,
+          [milkTypeId]: quantity
+        }
+      };
+      return newEntries;
+    });
+  };
+
+  const handleNextEntry = () => {
+    if (currentEntryIndex < entries.length - 1) {
+      setCurrentEntryIndex(currentEntryIndex + 1);
     }
   };
 
-  const handleSkipCustomer = () => {
-    const nextIndex = currentCustomerIndex + 1;
-    
-    // If we've reached the end of customers, move to next date
-    if (nextIndex >= customers.length) {
-      const nextDate = addDays(selectedDate, 1);
-      setSelectedDate(nextDate);
-      setCurrentCustomerIndex(0);
-      toast({
-        title: "Date Updated",
-        description: `Skipped ${currentEntry.customerName} and moved to next date: ${format(nextDate, 'dd/MM/yyyy')}`,
-      });
-    } else {
-      setCurrentCustomerIndex(nextIndex);
-      toast({
-        title: "Skipped",
-        description: `Skipped ${currentEntry.customerName}`,
-      });
+  const handlePreviousEntry = () => {
+    if (currentEntryIndex > 0) {
+      setCurrentEntryIndex(currentEntryIndex - 1);
     }
-    
-    setCurrentEntry({
-      customerId: '',
-      customerName: '',
-      milkTypeId: '',
-      milkTypeName: '',
-      quantity: 0,
-      pricePerLiter: 0,
-      groceryItems: [],
-      isGroceryOnly: false,
-      deliveryTime: lastDeliveryTime // Keep the delivery time
+  };
+
+  const currentEntry = entries[currentEntryIndex];
+
+  const handleSubmit = async () => {
+    if (!selectedDate) {
+      toast({
+        title: "Error",
+        description: "Please select a date for the deliveries.",
+        variant: "destructive",
+      })
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const deliveryDate = format(selectedDate, 'yyyy-MM-dd');
+      const deliveryRecordsToInsert = entries.map(entry => {
+        const milkTypeEntriesArray = Object.entries(entry.milkTypeEntries).map(([milkTypeId, quantity]) => ({
+          milk_type_id: milkTypeId,
+          quantity: quantity
+        }));
+
+        return {
+          customer_id: entry.customerId,
+          delivery_date: deliveryDate,
+          milk_entries: milkTypeEntriesArray
+        };
+      });
+
+      // Function to insert delivery records
+      const insertDeliveryRecords = async () => {
+        const { error } = await supabase
+          .from('delivery_records')
+          .insert(
+            deliveryRecordsToInsert.map(record => ({
+              customer_id: record.customer_id,
+              delivery_date: record.delivery_date
+            }))
+          );
+
+        if (error) {
+          throw error;
+        }
+      };
+
+      // Function to insert grocery items
+      const insertGroceryItems = async () => {
+        // Fetch delivery_record IDs for the given customer IDs and delivery date
+        const { data: deliveryRecords, error: deliveryRecordsError } = await supabase
+          .from('delivery_records')
+          .select('id, customer_id')
+          .in('customer_id', deliveryRecordsToInsert.map(record => record.customer_id))
+          .eq('delivery_date', deliveryDate);
+
+        if (deliveryRecordsError) {
+          throw deliveryRecordsError;
+        }
+
+        if (!deliveryRecords || deliveryRecords.length === 0) {
+          throw new Error('No delivery records found for the given customers and date.');
+        }
+
+        // Prepare grocery items for insertion
+        const groceryItemsToInsert = [];
+        for (const record of deliveryRecordsToInsert) {
+          const deliveryRecord = deliveryRecords.find(dr => dr.customer_id === record.customer_id);
+          if (deliveryRecord) {
+            for (const milkEntry of record.milk_entries) {
+              groceryItemsToInsert.push({
+                delivery_record_id: deliveryRecord.id,
+                milk_type_id: milkEntry.milk_type_id,
+                quantity: milkEntry.quantity
+              });
+            }
+          }
+        }
+
+        // Insert grocery items
+        const { error: groceryItemsError } = await supabase
+          .from('grocery_items')
+          .insert(groceryItemsToInsert);
+
+        if (groceryItemsError) {
+          throw groceryItemsError;
+        }
+      };
+
+      // Execute the database operations
+      await insertDeliveryRecords();
+      await insertGroceryItems();
+
+      toast({
+        title: "Success",
+        description: "Delivery records saved successfully!",
+      })
+      onClose();
+    } catch (error: any) {
+      console.error("Error saving delivery records:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to save delivery records.",
+      })
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const toggleCustomerSelection = (customerId: string) => {
+    setSelectedCustomerIds(prev => {
+      const newSelection = new Set(prev);
+      if (newSelection.has(customerId)) {
+        newSelection.delete(customerId);
+      } else {
+        newSelection.add(customerId);
+      }
+      return newSelection;
     });
+  };
+
+  const handleSelectAll = () => {
+    setIsAllSelected(prev => !prev);
+    setSelectedCustomerIds(prev => {
+      if (!isAllSelected) {
+        return new Set(customers.map(c => c.id));
+      } else {
+        return new Set();
+      }
+    });
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedCustomerIds.size === 0) {
+      toast({
+        title: "Error",
+        description: "No customers selected for deletion.",
+        variant: "destructive",
+      })
+      return;
+    }
+
+    if (!window.confirm("Are you sure you want to delete the selected customers? This action cannot be undone.")) {
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // Delete customers from Supabase
+      const { error } = await supabase
+        .from('customers')
+        .delete()
+        .in('id', Array.from(selectedCustomerIds));
+
+      if (error) {
+        throw error;
+      }
+
+      // Update state
+      setCustomers(prevCustomers => prevCustomers.filter(c => !selectedCustomerIds.has(c.id)));
+      setSelectedCustomerIds(new Set());
+      setIsAllSelected(false);
+
+      toast({
+        title: "Success",
+        description: "Selected customers deleted successfully!",
+      })
+    } catch (error: any) {
+      console.error("Error deleting customers:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to delete selected customers.",
+      })
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   if (customers.length === 0) {
     return (
-      <Card className="p-8 text-center">
-        <p className="text-gray-500 mb-4">No customers found. Please add customers first.</p>
-      </Card>
+      <div className="text-center py-8">
+        <p className="text-gray-500">No customers found. Please add customers first.</p>
+      </div>
     );
   }
 
   return (
     <div className="space-y-6 pb-20 sm:pb-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-3xl font-bold text-gray-900">Bulk Delivery Entry</h2>
+        <h2 className="text-xl sm:text-3xl font-bold text-gray-900">Bulk Delivery Entry</h2>
       </div>
 
-      {/* Date Selection */}
       <Card className="p-4">
-        <div className="flex items-center gap-4">
-          <Label>Delivery Date:</Label>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-800">Select Delivery Date</h3>
           <Popover>
             <PopoverTrigger asChild>
               <Button
-                variant="outline"
+                variant={"outline"}
                 className={cn(
-                  "justify-start text-left font-normal",
+                  "w-[240px] justify-start text-left font-normal",
                   !selectedDate && "text-muted-foreground"
                 )}
               >
                 <CalendarIcon className="mr-2 h-4 w-4" />
-                {selectedDate ? format(selectedDate, "dd/MM/yyyy") : <span>Pick a date</span>}
+                {selectedDate ? format(selectedDate, "PPP") : <span>Pick a date</span>}
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0" align="start">
               <Calendar
                 mode="single"
                 selected={selectedDate}
-                onSelect={(date) => date && setSelectedDate(date)}
+                onSelect={handleDateSelect}
+                disabled={isLoading}
                 initialFocus
-                className="p-3 pointer-events-auto"
               />
             </PopoverContent>
           </Popover>
         </div>
-      </Card>
 
-      {/* Customer Selection Mode */}
-      <Card className="p-4">
         <div className="flex items-center justify-between">
-          <div className="text-sm text-blue-600">
-            {autoSelectMode ? (
-              <>Current Customer: {customers[currentCustomerIndex]?.name} ({currentCustomerIndex + 1}/{customers.length})</>
-            ) : (
-              'Manual Customer Selection Mode'
-            )}
+          <h3 className="text-lg font-semibold text-gray-800">Customer Information</h3>
+          <div className="flex items-center space-x-2">
+            <Button variant="outline" size="sm" onClick={handlePreviousEntry} disabled={currentEntryIndex === 0 || isLoading}>
+              Previous
+            </Button>
+            <span className="text-sm text-gray-600">
+              {currentEntryIndex + 1} / {entries.length}
+            </span>
+            <Button variant="outline" size="sm" onClick={handleNextEntry} disabled={currentEntryIndex === entries.length - 1 || isLoading}>
+              Next
+            </Button>
           </div>
-          <Button
-            variant="outline"
-            onClick={() => setAutoSelectMode(!autoSelectMode)}
-            className="text-sm"
-          >
-            {autoSelectMode ? 'Switch to Manual' : 'Switch to Auto'}
-          </Button>
         </div>
       </Card>
 
-      {/* Current Entry Form */}
       <Card className="p-6">
         <div className="flex items-center justify-between mb-6">
-          <h3 className="text-xl font-semibold text-blue-600">
+          <h3 className="text-lg sm:text-xl font-semibold text-blue-600">
             Entry Form - {currentEntry.customerName}
           </h3>
-          {/* Desktop buttons */}
-          <div className="hidden sm:flex gap-2">
-            <Button
-              onClick={handleSkipCustomer}
-              variant="outline"
-              className="text-orange-600 hover:text-orange-700"
-            >
-              <SkipForward className="h-4 w-4 mr-2" />
-              Skip Customer
+          <div className="hidden sm:block space-x-2">
+            <Button variant="outline" size="sm" onClick={handleSubmit} disabled={isSaving || isLoading}>
+              {isSaving ? 'Saving...' : 'Save Delivery'}
             </Button>
-            <Button
-              onClick={handleNext}
-              className="bg-green-600 hover:bg-green-700"
-              disabled={isLoading}
-            >
-              <ArrowRight className="h-4 w-4 mr-2" />
-              Save & Next
+            <Button variant="destructive" size="sm" onClick={onClose} disabled={isSaving || isLoading}>
+              Cancel
             </Button>
           </div>
         </div>
 
-        {/* Manual Customer Selection */}
-        {!autoSelectMode && (
-          <div className="mb-4">
-            <Label>Select Customer *</Label>
-            <Select value={currentEntry.customerId} onValueChange={(value) => updateEntry('customerId', value)}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select customer" />
-              </SelectTrigger>
-              <SelectContent>
-                {customers.map((customer) => (
-                  <SelectItem key={customer.id} value={customer.id}>
-                    {customer.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-
-        {/* Delivery Time Selection */}
-        <div className="mb-4">
-          <Label>Delivery Time</Label>
-          <ToggleGroup 
-            type="single" 
-            value={currentEntry.deliveryTime} 
-            onValueChange={(value) => value && updateEntry('deliveryTime', value)}
-            className="grid grid-cols-2 gap-2 mt-2"
-          >
-            <ToggleGroupItem value="Morning" variant="outline" className="w-full">
-              Morning
-            </ToggleGroupItem>
-            <ToggleGroupItem value="Evening" variant="outline" className="w-full">
-              Evening
-            </ToggleGroupItem>
-          </ToggleGroup>
-        </div>
-
-        {/* Grocery Only Toggle */}
-        <div className="mb-4">
-          <label className="flex items-center space-x-2">
-            <input
-              type="checkbox"
-              checked={currentEntry.isGroceryOnly}
-              onChange={(e) => updateEntry('isGroceryOnly', e.target.checked)}
-              className="rounded"
-            />
-            <span className="text-sm font-medium">Grocery Only (No Milk)</span>
-          </label>
-        </div>
-
-        {/* Milk Delivery Section */}
-        {!currentEntry.isGroceryOnly && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            <div>
-              <Label>Milk Type *</Label>
-              <Select value={currentEntry.milkTypeId} onValueChange={(value) => updateEntry('milkTypeId', value)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select milk type" />
-                </SelectTrigger>
-                <SelectContent>
-                  {milkTypes.map((milk) => (
-                    <SelectItem key={milk.id} value={milk.id}>
-                      {milk.name} - ₹{Math.ceil(milk.price_per_liter)}/L
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <Label>Quantity (ml) *</Label>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {milkTypes.map(milkType => (
+            <div key={milkType.id} className="flex items-center space-x-2">
+              <Label htmlFor={`milk-${milkType.id}`} className="w-24 text-right">
+                {milkType.name}:
+              </Label>
               <Input
                 type="number"
-                step="50"
+                id={`milk-${milkType.id}`}
+                placeholder="0"
                 min="0"
-                value={currentEntry.quantity || ''}
-                onChange={(e) => updateEntry('quantity', e.target.value)}
-                placeholder="e.g., 500"
+                value={currentEntry.milkTypeEntries[milkType.id] || ''}
+                onChange={(e) => {
+                  const value = parseInt(e.target.value);
+                  handleQuantityChange(milkType.id, isNaN(value) ? 0 : value);
+                }}
+                disabled={isLoading}
               />
             </div>
-
-            <div>
-              <Label>Price per Liter (₹)</Label>
-              <Input
-                type="number"
-                value={currentEntry.pricePerLiter || ''}
-                readOnly
-                className="bg-gray-100"
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Grocery Items Section */}
-        <div className="border-t pt-4">
-          <div className="flex items-center justify-between mb-3">
-            <h4 className="font-medium text-gray-900">Grocery Items</h4>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={addGroceryItem}
-              className="text-green-600 hover:text-green-700"
-            >
-              <Plus className="h-4 w-4 mr-1" />
-              Add Item
-            </Button>
-          </div>
-
-          {currentEntry.groceryItems.length > 0 && (
-            <div className="space-y-3">
-              {currentEntry.groceryItems.map((item, itemIndex) => (
-                <div key={item.id} className="grid grid-cols-1 md:grid-cols-3 gap-3 p-3 bg-gray-50 rounded-lg">
-                  <div>
-                    <Label className="text-xs">Item Name (Description)</Label>
-                    <Input
-                      value={item.name}
-                      onChange={(e) => updateGroceryItem(itemIndex, 'name', e.target.value)}
-                      placeholder="Item description"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Total Price (₹)</Label>
-                    <Input
-                      type="number"
-                      step="1"
-                      min="0"
-                      value={item.total || ''}
-                      onChange={(e) => updateGroceryItem(itemIndex, 'total', e.target.value)}
-                      placeholder="Total price"
-                    />
-                  </div>
-                  <div className="flex items-end">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => removeGroceryItem(itemIndex)}
-                      className="text-red-600 hover:text-red-900"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+          ))}
         </div>
-
-        {/* Total */}
-        {((!currentEntry.isGroceryOnly && currentEntry.quantity && currentEntry.pricePerLiter) || currentEntry.groceryItems.some(item => item.total)) && (
-          <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-            <p className="text-sm font-medium text-blue-900">
-              Total Amount: ₹{calculateTotal()}
-              {!currentEntry.isGroceryOnly && currentEntry.quantity && (
-                <span className="text-xs text-gray-600 ml-2">
-                  ({currentEntry.quantity}ml = {(currentEntry.quantity / 1000).toFixed(2)}L)
-                </span>
-              )}
-            </p>
-          </div>
-        )}
       </Card>
 
-      {/* Mobile Fixed Action Buttons */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-3 sm:hidden z-50">
-        {/* Customer Name Display */}
-        {currentEntry.customerName && (
-          <div className="text-center mb-3">
-            <p className="text-sm font-medium text-gray-900">
-              {currentEntry.customerName}
-            </p>
-            <p className="text-xs text-gray-500">
-              Customer {currentCustomerIndex + 1} of {customers.length}
-            </p>
-          </div>
-        )}
-        
-        <div className="flex gap-2">
-          <Button
-            onClick={handleSkipCustomer}
-            variant="outline"
-            className="flex-1 text-orange-600 hover:text-orange-700 h-12 text-sm"
-          >
-            <SkipForward className="h-4 w-4 mr-1" />
-            Skip
-          </Button>
-          <Button
-            onClick={handleNext}
-            className="flex-1 bg-green-600 hover:bg-green-700 h-12 text-sm"
-            disabled={isLoading}
-          >
-            <ArrowRight className="h-4 w-4 mr-1" />
-            {isLoading ? 'Saving...' : 'Save & Next'}
-          </Button>
-        </div>
+      <div className="sm:hidden fixed bottom-0 left-0 w-full bg-gray-50 border-t p-4 flex justify-around">
+        <Button className="w-1/2 mx-1" onClick={handleSubmit} disabled={isSaving || isLoading}>
+          {isSaving ? 'Saving...' : 'Save Delivery'}
+        </Button>
+        <Button variant="destructive" className="w-1/2 mx-1" onClick={onClose} disabled={isSaving || isLoading}>
+          Cancel
+        </Button>
       </div>
     </div>
   );

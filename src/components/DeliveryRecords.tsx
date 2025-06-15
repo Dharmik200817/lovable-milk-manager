@@ -3,39 +3,41 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Calendar } from '@/components/ui/calendar';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { Plus, Calendar as CalendarIcon, Search, List, Grid } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger
+} from '@/components/ui/dialog';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import { Plus, Search, Edit, Trash2, Download } from 'lucide-react';
 import { format } from 'date-fns';
-import { cn } from '@/lib/utils';
+import { cn } from "@/lib/utils"
 import { toast } from '@/hooks/use-toast';
-import { BulkDeliveryEntry } from './BulkDeliveryEntry';
 import { supabase } from '@/integrations/supabase/client';
+import { DateRange } from 'react-day-picker';
+import { generateDeliveryReport } from '@/utils/generate-delivery-report';
 
 interface DeliveryRecord {
   id: string;
   customer_id: string;
   customer_name: string;
-  milk_type_name: string;
-  quantity: number;
-  price_per_liter: number;
-  total_amount: number;
   delivery_date: string;
-  notes: string;
-}
-
-interface Customer {
-  id: string;
-  name: string;
-}
-
-interface MilkType {
-  id: string;
-  name: string;
-  price_per_liter: number;
+  milk_type: string;
+  quantity: number;
+  rate_per_liter: number;
+  total_amount: number;
+  payment_status: boolean;
+  notes?: string;
+  created_at: string;
 }
 
 interface DeliveryRecordsProps {
@@ -44,512 +46,462 @@ interface DeliveryRecordsProps {
 
 export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) => {
   const [deliveryRecords, setDeliveryRecords] = useState<DeliveryRecord[]>([]);
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [milkTypes, setMilkTypes] = useState<MilkType[]>([]);
-  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [isBulkMode, setIsBulkMode] = useState(true); // Default to bulk mode
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [editingRecord, setEditingRecord] = useState<DeliveryRecord | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [lastDeliveryTime, setLastDeliveryTime] = useState('Morning');
+  const [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
+  const [milkTypes, setMilkTypes] = useState<{ id: string; name: string; price_per_liter: number }[]>([]);
   const [formData, setFormData] = useState({
     customerId: '',
-    customerName: '',
-    milkTypeId: '',
-    milkTypeName: '',
-    quantity: '',
-    pricePerLiter: '',
     deliveryDate: new Date(),
-    deliveryTime: 'Morning',
+    milkType: '',
+    quantity: '',
     notes: ''
   });
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
 
+  // Load data from Supabase on component mount
   useEffect(() => {
-    loadDeliveryRecords();
     loadCustomers();
     loadMilkTypes();
+    loadDeliveryRecords();
   }, []);
-
-  useEffect(() => {
-    if (highlightCustomerId && deliveryRecords.length > 0) {
-      const customerRecords = deliveryRecords.filter(record => record.customer_id === highlightCustomerId);
-      if (customerRecords.length > 0) {
-        setTimeout(() => {
-          const element = document.getElementById(`customer-record-${highlightCustomerId}`);
-          if (element) {
-            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          }
-        }, 100);
-      }
-    }
-  }, [highlightCustomerId, deliveryRecords]);
-
-  const loadDeliveryRecords = async () => {
-    try {
-      setIsLoading(true);
-      const { data, error } = await supabase
-        .from('delivery_records')
-        .select(`
-          *,
-          customers(name),
-          milk_types(name)
-        `)
-        .order('delivery_date', { ascending: false });
-
-      if (error) throw error;
-
-      const formattedRecords = data?.map(record => ({
-        id: record.id,
-        customer_id: record.customer_id,
-        customer_name: record.customers?.name || 'Unknown',
-        milk_type_name: record.milk_types?.name || 'Unknown',
-        quantity: record.quantity,
-        price_per_liter: record.price_per_liter,
-        total_amount: record.total_amount,
-        delivery_date: record.delivery_date,
-        notes: record.notes || ''
-      })) || [];
-
-      setDeliveryRecords(formattedRecords);
-    } catch (error) {
-      console.error('Error loading delivery records:', error);
-      toast({
-        title: "Error",
-        description: "Failed to load delivery records",
-        variant: "destructive"
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const loadCustomers = async () => {
     try {
+      setIsLoading(true);
       const { data, error } = await supabase
         .from('customers')
         .select('id, name')
         .order('name');
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error loading customers:', error);
+        throw error;
+      }
+
       setCustomers(data || []);
     } catch (error) {
       console.error('Error loading customers:', error);
-    }
-  };
-
-  const loadMilkTypes = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('milk_types')
-        .select('id, name, price_per_liter')
-        .order('name');
-
-      if (error) throw error;
-      setMilkTypes(data || []);
-    } catch (error) {
-      console.error('Error loading milk types:', error);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!formData.customerId || !formData.milkTypeId || !formData.quantity || !formData.pricePerLiter) {
       toast({
         title: "Error",
-        description: "Please fill in all required fields",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    const quantityInMl = parseFloat(formData.quantity);
-    const price = Math.ceil(parseFloat(formData.pricePerLiter));
-
-    if (isNaN(quantityInMl) || quantityInMl <= 0 || isNaN(price) || price <= 0) {
-      toast({
-        title: "Error",
-        description: "Please enter valid quantity and price",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    try {
-      setIsLoading(true);
-      const quantityInLiters = quantityInMl / 1000;
-      const totalAmount = Math.ceil(quantityInLiters * price);
-      const notesWithTime = `${formData.deliveryTime}${formData.notes ? ` - ${formData.notes}` : ''}`;
-
-      const { error: deliveryError } = await supabase
-        .from('delivery_records')
-        .insert({
-          customer_id: formData.customerId,
-          milk_type_id: formData.milkTypeId,
-          quantity: quantityInLiters,
-          price_per_liter: price,
-          total_amount: totalAmount,
-          delivery_date: format(formData.deliveryDate, 'yyyy-MM-dd'),
-          notes: notesWithTime
-        });
-
-      if (deliveryError) {
-        console.error('Delivery record error:', deliveryError);
-        throw deliveryError;
-      }
-
-      const { data: existingBalance } = await supabase
-        .from('customer_balances')
-        .select('pending_amount')
-        .eq('customer_id', formData.customerId)
-        .maybeSingle();
-
-      const newPendingAmount = Math.ceil((existingBalance?.pending_amount || 0) + totalAmount);
-
-      const { error: balanceError } = await supabase
-        .from('customer_balances')
-        .upsert({
-          customer_id: formData.customerId,
-          pending_amount: newPendingAmount,
-          updated_at: new Date().toISOString()
-        }, {
-          onConflict: 'customer_id'
-        });
-
-      if (balanceError) {
-        console.error('Balance update error:', balanceError);
-        throw balanceError;
-      }
-
-      toast({
-        title: "Success",
-        description: "Delivery record added successfully"
-      });
-
-      await loadDeliveryRecords();
-      
-      setLastDeliveryTime(formData.deliveryTime);
-      
-      setFormData({
-        customerId: '',
-        customerName: '',
-        milkTypeId: '',
-        milkTypeName: '',
-        quantity: '',
-        pricePerLiter: '',
-        deliveryDate: new Date(),
-        deliveryTime: formData.deliveryTime,
-        notes: ''
-      });
-      setIsAddDialogOpen(false);
-    } catch (error) {
-      console.error('Error adding delivery record:', error);
-      toast({
-        title: "Error",
-        description: "Failed to add delivery record. Please try again.",
-        variant: "destructive"
+        description: "Failed to load customers",
+        variant: "destructive",
+        duration: 2000
       });
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleCustomerSelect = (customerId: string) => {
-    const customer = customers.find(c => c.id === customerId);
-    setFormData({
-      ...formData,
-      customerId,
-      customerName: customer?.name || ''
-    });
-  };
+  const loadMilkTypes = async () => {
+    try {
+      setIsLoading(true);
+      const { data, error } = await supabase
+        .from('milk_types')
+        .select('id, name, price_per_liter')
+        .order('name');
 
-  const handleMilkTypeSelect = (milkTypeId: string) => {
-    const milkType = milkTypes.find(m => m.id === milkTypeId);
-    setFormData({
-      ...formData,
-      milkTypeId,
-      milkTypeName: milkType?.name || '',
-      pricePerLiter: Math.ceil(milkType?.price_per_liter || 0).toString()
-    });
-  };
+      if (error) {
+        console.error('Error loading milk types:', error);
+        throw error;
+      }
 
-  const handleDeliveryTimeChange = (value: string) => {
-    if (value) {
-      setFormData({
-        ...formData,
-        deliveryTime: value
+      setMilkTypes(data || []);
+    } catch (error) {
+      console.error('Error loading milk types:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load milk types",
+        variant: "destructive",
+        duration: 2000
       });
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const handleDialogOpen = (open: boolean) => {
-    if (open) {
-      setFormData(prev => ({
-        ...prev,
-        deliveryTime: lastDeliveryTime
-      }));
+  const loadDeliveryRecords = async () => {
+    try {
+      setIsLoading(true);
+      let query = supabase
+        .from('delivery_records')
+        .select('*')
+        .order('delivery_date', { ascending: false });
+
+      if (highlightCustomerId) {
+        query = query.eq('customer_id', highlightCustomerId);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error('Error loading delivery records:', error);
+        throw error;
+      }
+
+      setDeliveryRecords(data || []);
+    } catch (error) {
+      console.error('Error loading delivery records:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load delivery records",
+        variant: "destructive",
+        duration: 2000
+      });
+    } finally {
+      setIsLoading(false);
     }
-    setIsAddDialogOpen(open);
   };
 
-  if (isBulkMode) {
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <h2 className="text-3xl font-bold text-gray-900">Delivery Records</h2>
-            <div className="flex rounded-lg border">
-              <Button
-                variant={!isBulkMode ? "default" : "ghost"}
-                onClick={() => setIsBulkMode(false)}
-                className="rounded-r-none"
-              >
-                <List className="h-4 w-4 mr-2" />
-                Single Entry
-              </Button>
-              <Button
-                variant={isBulkMode ? "default" : "ghost"}
-                onClick={() => setIsBulkMode(true)}
-                className="rounded-l-none"
-              >
-                <Grid className="h-4 w-4 mr-2" />
-                Bulk Entry
-              </Button>
-            </div>
-          </div>
-        </div>
-        <BulkDeliveryEntry />
-      </div>
-    );
-  }
+  const filteredRecords = deliveryRecords.filter(record => {
+    const searchTermLower = searchTerm.toLowerCase();
+    const customerNameLower = record.customer_name.toLowerCase();
+    const milkTypeLower = record.milk_type.toLowerCase();
 
-  const filteredRecords = deliveryRecords.filter(record =>
-    record.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    record.milk_type_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    record.delivery_date.includes(searchTerm)
-  );
+    const matchesSearchTerm =
+      customerNameLower.includes(searchTermLower) ||
+      milkTypeLower.includes(searchTermLower);
 
-  const todaysRecords = deliveryRecords.filter(record => 
-    record.delivery_date === format(new Date(), 'yyyy-MM-dd')
-  );
-  
+    const deliveryDate = new Date(record.delivery_date);
+    const matchesDateRange = dateRange?.from ? (deliveryDate >= dateRange.from && (dateRange.to ? deliveryDate <= dateRange.to : true)) : true;
+
+    return matchesSearchTerm && matchesDateRange;
+  });
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!formData.customerId || !formData.milkType || !formData.quantity) {
+      toast({
+        title: "Error",
+        description: "All fields are required",
+        variant: "destructive",
+        duration: 2000
+      });
+      return;
+    }
+
+    const quantity = parseFloat(formData.quantity);
+    if (isNaN(quantity) || quantity <= 0) {
+      toast({
+        title: "Error",
+        description: "Please enter a valid quantity",
+        variant: "destructive",
+        duration: 2000
+      });
+      return;
+    }
+
+    const selectedCustomer = customers.find(c => c.id === formData.customerId);
+    const selectedMilkType = milkTypes.find(m => m.id === formData.milkType);
+
+    if (!selectedCustomer || !selectedMilkType) {
+      toast({
+        title: "Error",
+        description: "Invalid customer or milk type selected",
+        variant: "destructive",
+        duration: 2000
+      });
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+
+      const deliveryDate = format(formData.deliveryDate, 'yyyy-MM-dd');
+      const totalAmount = quantity * selectedMilkType.price_per_liter;
+
+      if (editingRecord) {
+        // Update existing record
+        const { error } = await supabase
+          .from('delivery_records')
+          .update({
+            customer_id: formData.customerId,
+            customer_name: selectedCustomer.name,
+            delivery_date: deliveryDate,
+            milk_type: selectedMilkType.name,
+            quantity: quantity,
+            rate_per_liter: selectedMilkType.price_per_liter,
+            total_amount: totalAmount,
+            notes: formData.notes || null
+          })
+          .eq('id', editingRecord.id);
+
+        if (error) throw error;
+
+        toast({
+          title: "Success",
+          description: "Delivery record updated successfully",
+          duration: 2000
+        });
+      } else {
+        // Create new record
+        const { error } = await supabase
+          .from('delivery_records')
+          .insert({
+            customer_id: formData.customerId,
+            customer_name: selectedCustomer.name,
+            delivery_date: deliveryDate,
+            milk_type: selectedMilkType.name,
+            quantity: quantity,
+            rate_per_liter: selectedMilkType.price_per_liter,
+            total_amount: totalAmount,
+            payment_status: false,
+            notes: formData.notes || null
+          });
+
+        if (error) throw error;
+
+        toast({
+          title: "Success",
+          description: "Delivery record added successfully",
+          duration: 2000
+        });
+      }
+
+      // Reload delivery records to get updated data
+      await loadDeliveryRecords();
+
+      // Reset form
+      setFormData({ customerId: '', deliveryDate: new Date(), milkType: '', quantity: '', notes: '' });
+      setIsAddDialogOpen(false);
+      setEditingRecord(null);
+    } catch (error) {
+      console.error('Error saving delivery record:', error);
+      toast({
+        title: "Error",
+        description: "Failed to save delivery record",
+        variant: "destructive",
+        duration: 2000
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleEdit = (record: DeliveryRecord) => {
+    setEditingRecord(record);
+    setFormData({
+      customerId: record.customer_id,
+      deliveryDate: new Date(record.delivery_date),
+      milkType: record.milk_type,
+      quantity: record.quantity.toString(),
+      notes: record.notes || ''
+    });
+    setIsAddDialogOpen(true);
+  };
+
+  const handleDelete = async (recordId: string) => {
+    try {
+      setIsLoading(true);
+
+      const { error } = await supabase
+        .from('delivery_records')
+        .delete()
+        .eq('id', recordId);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Delivery record deleted successfully",
+        duration: 2000
+      });
+
+      // Reload delivery records
+      await loadDeliveryRecords();
+    } catch (error) {
+      console.error('Error deleting delivery record:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete delivery record",
+        variant: "destructive",
+        duration: 2000
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const downloadDeliveryReport = () => {
+    generateDeliveryReport(filteredRecords);
+  };
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-20 sm:pb-6">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <h2 className="text-3xl font-bold text-gray-900">Delivery Records</h2>
-          <div className="flex rounded-lg border">
-            <Button
-              variant={!isBulkMode ? "default" : "ghost"}
-              onClick={() => setIsBulkMode(false)}
-              className="rounded-r-none"
-            >
-              <List className="h-4 w-4 mr-2" />
-              Single Entry
-            </Button>
-            <Button
-              variant={isBulkMode ? "default" : "ghost"}
-              onClick={() => setIsBulkMode(true)}
-              className="rounded-l-none"
-            >
-              <Grid className="h-4 w-4 mr-2" />
-              Bulk Entry
-            </Button>
-          </div>
-        </div>
+        <h2 className="text-xl sm:text-3xl font-bold text-gray-900">Delivery Records</h2>
         
-        <Dialog open={isAddDialogOpen} onOpenChange={handleDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="bg-blue-600 hover:bg-blue-700" disabled={isLoading}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Delivery
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>Add Delivery Record</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <Label htmlFor="customer">Customer *</Label>
-                <Select onValueChange={handleCustomerSelect} required>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select customer" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {customers.map((customer) => (
-                      <SelectItem key={customer.id} value={customer.id}>
-                        {customer.name}
-                      </SelectItem>
+        <div className="space-x-2">
+          <Button onClick={downloadDeliveryReport} disabled={isLoading}>
+            <Download className="h-4 w-4 mr-2" />
+            Download Report
+          </Button>
+          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+            <DialogTrigger asChild>
+              <Button className="bg-green-600 hover:bg-green-700" disabled={isLoading}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Record
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>
+                  {editingRecord ? 'Edit Delivery Record' : 'Add New Delivery Record'}
+                </DialogTitle>
+              </DialogHeader>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <Label htmlFor="customerId">Customer *</Label>
+                  <select
+                    id="customerId"
+                    className="w-full rounded-md border border-gray-200 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-blue-500 disabled:cursor-not-allowed"
+                    value={formData.customerId}
+                    onChange={(e) => setFormData({ ...formData, customerId: e.target.value })}
+                    required
+                    disabled={isLoading}
+                  >
+                    <option value="" disabled>Select a customer</option>
+                    {customers.map(customer => (
+                      <option key={customer.id} value={customer.id}>{customer.name}</option>
                     ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <Label htmlFor="milkType">Milk Type *</Label>
-                <Select onValueChange={handleMilkTypeSelect} required>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select milk type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {milkTypes.map((milk) => (
-                      <SelectItem key={milk.id} value={milk.id}>
-                        {milk.name} - ₹{Math.ceil(milk.price_per_liter)}/L
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <Label htmlFor="quantity">Quantity (ml) *</Label>
-                <Input
-                  id="quantity"
-                  type="number"
-                  step="50"
-                  min="0"
-                  value={formData.quantity}
-                  onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
-                  placeholder="e.g., 500"
-                  required
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="price">Price per Liter (₹) *</Label>
-                <Input
-                  id="price"
-                  type="number"
-                  step="1"
-                  min="0"
-                  value={formData.pricePerLiter}
-                  onChange={(e) => setFormData({ ...formData, pricePerLiter: e.target.value })}
-                  placeholder="e.g., 55"
-                  required
-                />
-              </div>
-
-              <div>
-                <Label>Delivery Time *</Label>
-                <ToggleGroup 
-                  type="single" 
-                  value={formData.deliveryTime} 
-                  onValueChange={handleDeliveryTimeChange}
-                  className="grid grid-cols-2 gap-2 mt-2"
-                >
-                  <ToggleGroupItem value="Morning" variant="outline" className="w-full">
-                    Morning
-                  </ToggleGroupItem>
-                  <ToggleGroupItem value="Evening" variant="outline" className="w-full">
-                    Evening
-                  </ToggleGroupItem>
-                </ToggleGroup>
-              </div>
-
-              <div>
-                <Label>Delivery Date *</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className={cn(
-                        "w-full justify-start text-left font-normal",
-                        !formData.deliveryDate && "text-muted-foreground"
-                      )}
-                    >
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {formData.deliveryDate ? format(formData.deliveryDate, "dd/MM/yyyy") : <span>Pick a date</span>}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={formData.deliveryDate}
-                      onSelect={(date) => date && setFormData({ ...formData, deliveryDate: date })}
-                      initialFocus
-                      className="p-3 pointer-events-auto"
-                    />
-                  </PopoverContent>
-                </Popover>
-              </div>
-
-              <div>
-                <Label htmlFor="notes">Notes</Label>
-                <Input
-                  id="notes"
-                  value={formData.notes}
-                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                  placeholder="Optional notes"
-                />
-              </div>
-
-              {formData.quantity && formData.pricePerLiter && (
-                <div className="p-3 bg-gray-50 rounded-lg">
-                  <p className="text-sm font-medium">
-                    Total Amount: ₹{Math.ceil((parseFloat(formData.quantity) / 1000) * Math.ceil(parseFloat(formData.pricePerLiter)))}
-                    <span className="text-xs text-gray-600 ml-2">
-                      ({formData.quantity}ml = {(parseFloat(formData.quantity) / 1000).toFixed(2)}L)
-                    </span>
-                  </p>
+                  </select>
                 </div>
-              )}
-
-              <div className="flex gap-2 pt-4">
-                <Button type="submit" className="flex-1 bg-blue-600 hover:bg-blue-700" disabled={isLoading}>
-                  {isLoading ? 'Adding...' : 'Add Delivery'}
-                </Button>
-                <Button 
-                  type="button" 
-                  variant="outline" 
-                  onClick={() => setIsAddDialogOpen(false)}
-                  disabled={isLoading}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog>
+                <div>
+                  <Label htmlFor="deliveryDate">Delivery Date *</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant={"outline"}
+                        className={cn(
+                          "w-full justify-start text-left font-normal",
+                          !formData.deliveryDate && "text-muted-foreground"
+                        )}
+                      >
+                        {formData.deliveryDate ? (
+                          format(formData.deliveryDate, "PPP")
+                        ) : (
+                          <span>Pick a date</span>
+                        )}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={formData.deliveryDate}
+                        onSelect={(date) => setFormData({ ...formData, deliveryDate: date })}
+                        disabled={isLoading}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+                <div>
+                  <Label htmlFor="milkType">Milk Type *</Label>
+                  <select
+                    id="milkType"
+                    className="w-full rounded-md border border-gray-200 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-blue-500 disabled:cursor-not-allowed"
+                    value={formData.milkType}
+                    onChange={(e) => setFormData({ ...formData, milkType: e.target.value })}
+                    required
+                    disabled={isLoading}
+                  >
+                    <option value="" disabled>Select a milk type</option>
+                    {milkTypes.map(milkType => (
+                      <option key={milkType.id} value={milkType.id}>{milkType.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <Label htmlFor="quantity">Quantity (Liters) *</Label>
+                  <Input
+                    id="quantity"
+                    type="number"
+                    step="0.5"
+                    min="0.5"
+                    value={formData.quantity}
+                    onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
+                    placeholder="e.g., 1.5, 2, 5"
+                    required
+                    disabled={isLoading}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="notes">Notes</Label>
+                  <Textarea
+                    id="notes"
+                    value={formData.notes}
+                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                    placeholder="Optional notes for this delivery"
+                    rows={3}
+                    disabled={isLoading}
+                  />
+                </div>
+                <div className="flex gap-2 pt-4">
+                  <Button type="submit" className="flex-1 bg-green-600 hover:bg-green-700" disabled={isLoading}>
+                    {isLoading ? 'Saving...' : (editingRecord ? 'Update Record' : 'Add Record')}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setIsAddDialogOpen(false);
+                      setEditingRecord(null);
+                      setFormData({ customerId: '', deliveryDate: new Date(), milkType: '', quantity: '', notes: '' });
+                    }}
+                    disabled={isLoading}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
-      {/* Today's Summary */}
-      <Card className="p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Today's Summary</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="text-center">
-            <p className="text-2xl font-bold text-blue-600">{todaysRecords.length}</p>
-            <p className="text-sm text-gray-500">Deliveries</p>
+      {/* Search and Filter */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <Card className="p-4">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+            <Input
+              placeholder="Search records by customer or milk type..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10"
+              disabled={isLoading}
+            />
           </div>
-          <div className="text-center">
-            <p className="text-2xl font-bold text-green-600">
-              {Math.round(todaysRecords.reduce((sum, record) => sum + record.quantity, 0) * 1000)}ml
-            </p>
-            <p className="text-sm text-gray-500">Total Quantity</p>
-          </div>
-          <div className="text-center">
-            <p className="text-2xl font-bold text-yellow-600">
-              ₹{Math.ceil(todaysRecords.reduce((sum, record) => sum + record.total_amount, 0))}
-            </p>
-            <p className="text-sm text-gray-500">Total Amount</p>
-          </div>
-        </div>
-      </Card>
+        </Card>
+        <Card className="p-4">
+          <Popover open={isFilterOpen} onOpenChange={setIsFilterOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                className="w-full justify-between"
+                disabled={isLoading}
+              >
+                Filter by Date
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-4" align="end">
+              <Calendar
+                mode="range"
+                defaultMonth={dateRange?.from}
+                selected={dateRange}
+                onSelect={setDateRange}
+                disabled={isLoading}
+              />
+            </PopoverContent>
+          </Popover>
+        </Card>
+      </div>
 
-      {/* Search */}
-      <Card className="p-4">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-          <Input
-            placeholder="Search by customer name, milk type, or date..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
-            disabled={isLoading}
-          />
-        </div>
-      </Card>
-
-      {/* Records Table */}
+      {/* Delivery Records List */}
       <Card className="overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -568,13 +520,13 @@ export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) =
                   Quantity
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Rate
+                  Amount
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Total
+                  Payment Status
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Notes
+                  Actions
                 </th>
               </tr>
             </thead>
@@ -588,42 +540,56 @@ export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) =
               ) : filteredRecords.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
-                    No delivery records found. Add your first delivery record to get started.
+                    No delivery records found. Add your first record to get started.
                   </td>
                 </tr>
               ) : (
                 filteredRecords.map((record) => (
-                  <tr 
-                    key={record.id} 
-                    id={record.customer_id === highlightCustomerId ? `customer-record-${highlightCustomerId}` : undefined}
-                    className={cn(
-                      "hover:bg-gray-50",
-                      record.customer_id === highlightCustomerId && "bg-blue-50 border-blue-200"
-                    )}
-                  >
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {format(new Date(record.delivery_date), 'dd/MM/yyyy')}
+                  <tr key={record.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">{new Date(record.delivery_date).toLocaleDateString()}</div>
                     </td>
-                    <td className={cn(
-                      "px-6 py-4 whitespace-nowrap text-sm font-medium",
-                      record.customer_id === highlightCustomerId ? "text-blue-900" : "text-gray-900"
-                    )}>
-                      {record.customer_name}
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="font-medium text-gray-900">{record.customer_name}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {record.milk_type_name}
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">{record.milk_type}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {Math.round(record.quantity * 1000)}ml
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">{record.quantity} L</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      ₹{Math.ceil(record.price_per_liter)}/L
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">₹{record.total_amount.toFixed(2)}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
-                      ₹{Math.ceil(record.total_amount)}
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <Checkbox
+                        checked={record.payment_status}
+                        disabled
+                      />
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-900 max-w-xs truncate">
-                      {record.notes || '-'}
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      <div className="flex space-x-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleEdit(record)}
+                          className="text-blue-600 hover:text-blue-900"
+                          disabled={isLoading}
+                          title="Edit Record"
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDelete(record.id)}
+                          className="text-red-600 hover:text-red-900"
+                          disabled={isLoading}
+                          title="Delete Record"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))

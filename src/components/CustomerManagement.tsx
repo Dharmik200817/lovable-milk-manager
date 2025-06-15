@@ -286,7 +286,7 @@ export const CustomerManagement = ({ onViewRecords }: CustomerManagementProps) =
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-3xl font-bold text-gray-900">Customer Management</h2>
+        <h2 className="text-xl sm:text-3xl font-bold text-gray-900">Customer Management</h2>
         
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
           <DialogTrigger asChild>
