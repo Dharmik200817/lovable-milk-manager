@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -33,7 +34,6 @@ export const PendingPayments = ({ onViewCustomer }: PendingPaymentsProps) => {
   const [isLoading, setIsLoading] = useState(false);
   const [clearingCustomerId, setClearingCustomerId] = useState<string | null>(null);
   const [password, setPassword] = useState('');
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
 
   useEffect(() => {
     loadPendingPayments();
@@ -80,7 +80,9 @@ export const PendingPayments = ({ onViewCustomer }: PendingPaymentsProps) => {
     }
   };
 
-  const handleClearPayment = async (customerId: string) => {
+  const handleClearPayment = async () => {
+    if (!clearingCustomerId) return;
+    
     if (password !== '123') {
       toast({
         title: "Error",
@@ -92,13 +94,13 @@ export const PendingPayments = ({ onViewCustomer }: PendingPaymentsProps) => {
     }
 
     try {
-      setClearingCustomerId(customerId);
+      setIsLoading(true);
       
       // Clear the pending amount for this customer
       const { error } = await supabase
         .from('customer_balances')
         .update({ pending_amount: 0 })
-        .eq('customer_id', customerId);
+        .eq('customer_id', clearingCustomerId);
 
       if (error) {
         console.error('Error clearing payment:', error);
@@ -116,7 +118,7 @@ export const PendingPayments = ({ onViewCustomer }: PendingPaymentsProps) => {
       
       // Reset form
       setPassword('');
-      setIsDialogOpen(false);
+      setClearingCustomerId(null);
     } catch (error) {
       console.error('Error clearing payment:', error);
       toast({
@@ -126,11 +128,21 @@ export const PendingPayments = ({ onViewCustomer }: PendingPaymentsProps) => {
         duration: 2000
       });
     } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDialogOpenChange = (open: boolean, customerId?: string) => {
+    if (open && customerId) {
+      setClearingCustomerId(customerId);
+    } else {
       setClearingCustomerId(null);
+      setPassword('');
     }
   };
 
   const totalPendingAmount = pendingPayments.reduce((sum, payment) => sum + payment.pending_amount, 0);
+  const currentPayment = pendingPayments.find(p => p.customer_id === clearingCustomerId);
 
   return (
     <Card className="p-6">
@@ -173,12 +185,14 @@ export const PendingPayments = ({ onViewCustomer }: PendingPaymentsProps) => {
                   </Button>
                 )}
                 
-                <AlertDialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+                <AlertDialog 
+                  open={clearingCustomerId === payment.customer_id} 
+                  onOpenChange={(open) => handleDialogOpenChange(open, payment.customer_id)}
+                >
                   <AlertDialogTrigger asChild>
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setClearingCustomerId(payment.customer_id)}
                       className="text-red-600 hover:text-red-900"
                       disabled={isLoading}
                     >
@@ -190,7 +204,7 @@ export const PendingPayments = ({ onViewCustomer }: PendingPaymentsProps) => {
                     <AlertDialogHeader>
                       <AlertDialogTitle>Clear Payment</AlertDialogTitle>
                       <AlertDialogDescription>
-                        Are you sure you want to clear the pending payment for {payment.customer_name}? 
+                        Are you sure you want to clear the pending payment for {currentPayment?.customer_name}? 
                         This will set their pending balance to ₹0.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
@@ -203,21 +217,23 @@ export const PendingPayments = ({ onViewCustomer }: PendingPaymentsProps) => {
                         onChange={(e) => setPassword(e.target.value)}
                         placeholder="Enter password to confirm"
                         className="mt-2"
+                        onKeyPress={(e) => {
+                          if (e.key === 'Enter') {
+                            handleClearPayment();
+                          }
+                        }}
                       />
                     </div>
                     <AlertDialogFooter>
-                      <AlertDialogCancel onClick={() => {
-                        setPassword('');
-                        setClearingCustomerId(null);
-                      }}>
+                      <AlertDialogCancel onClick={() => handleDialogOpenChange(false)}>
                         Cancel
                       </AlertDialogCancel>
                       <AlertDialogAction
-                        onClick={() => handleClearPayment(clearingCustomerId!)}
-                        disabled={clearingCustomerId === payment.customer_id && isLoading}
+                        onClick={handleClearPayment}
+                        disabled={isLoading}
                         className="bg-red-600 hover:bg-red-700"
                       >
-                        {clearingCustomerId === payment.customer_id && isLoading ? 'Clearing...' : 'Clear Payment'}
+                        {isLoading ? 'Clearing...' : 'Clear Payment'}
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>
