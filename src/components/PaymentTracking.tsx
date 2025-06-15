@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -18,10 +19,9 @@ import {
 } from "@/components/ui/popover"
 import { format } from 'date-fns';
 import { cn } from "@/lib/utils"
-import { CalendarIcon, Plus, CheckCircle, AlertCircle, Users } from 'lucide-react';
+import { CalendarIcon, Plus } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
-import { BulkPaymentEntry } from './BulkPaymentEntry';
 import { PendingPayments } from './PendingPayments';
 
 interface Payment {
@@ -41,7 +41,6 @@ interface PaymentTrackingProps {
 export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) => {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const [isBulkMode, setIsBulkMode] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
     customer_name: '',
@@ -151,138 +150,118 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
     }
   };
 
-  if (isBulkMode) {
-    return (
-      <BulkPaymentEntry 
-        onClose={() => setIsBulkMode(false)} 
-        onPaymentsSaved={loadPayments}
-      />
-    );
-  }
-
   return (
     <div className="space-y-6 pb-20 sm:pb-6">
       <div className="flex items-center justify-between">
         <h2 className="text-xl sm:text-3xl font-bold text-gray-900">Payment Tracking</h2>
         
-        <div className="flex gap-2">
-          <Button 
-            variant="outline" 
-            onClick={() => setIsBulkMode(true)} 
-            disabled={isLoading}
-            className="bg-blue-600 hover:bg-blue-700 text-white"
-          >
-            <Users className="h-4 w-4 mr-2" />
-            Bulk Entry
-          </Button>
-          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-            <DialogTrigger asChild>
-              <Button className="bg-green-600 hover:bg-green-700" disabled={isLoading}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Payment
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-md">
-              <DialogHeader>
-                <DialogTitle>Add New Payment</DialogTitle>
-              </DialogHeader>
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                  <Label htmlFor="customer_name">Customer Name *</Label>
-                  <Input
-                    id="customer_name"
-                    value={formData.customer_name}
-                    onChange={(e) => setFormData({ ...formData, customer_name: e.target.value })}
-                    placeholder="Enter customer name"
-                    required
-                    disabled={isLoading}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="amount">Amount (₹) *</Label>
-                  <Input
-                    id="amount"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={formData.amount}
-                    onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                    placeholder="e.g., 550.00"
-                    required
-                    disabled={isLoading}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="payment_date">Payment Date *</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant={"outline"}
-                        className={cn(
-                          "w-[240px] justify-start text-left font-normal",
-                          !date && "text-muted-foreground"
-                        )}
-                      >
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {date ? format(date, "PPP") : <span>Pick a date</span>}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar
-                        mode="single"
-                        selected={date}
-                        onSelect={(date) => {
-                          setDate(date)
-                          setFormData({ ...formData, payment_date: date?.toISOString() || '' })
-                        }}
-                        disabled={isLoading}
-                        initialFocus
-                      />
-                    </PopoverContent>
-                  </Popover>
-                </div>
-                <div>
-                  <Label htmlFor="payment_method">Payment Method *</Label>
-                  <Input
-                    id="payment_method"
-                    value={formData.payment_method}
-                    onChange={(e) => setFormData({ ...formData, payment_method: e.target.value })}
-                    placeholder="e.g., Cash, UPI, Card"
-                    required
-                    disabled={isLoading}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="notes">Notes</Label>
-                  <Input
-                    id="notes"
-                    value={formData.notes}
-                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                    placeholder="Optional notes"
-                    disabled={isLoading}
-                  />
-                </div>
-                <div className="flex gap-2 pt-4">
-                  <Button type="submit" className="flex-1 bg-green-600 hover:bg-green-700" disabled={isLoading}>
-                    {isLoading ? 'Saving...' : 'Add Payment'}
-                  </Button>
-                  <Button 
-                    type="button" 
-                    variant="outline" 
-                    onClick={() => {
-                      setIsAddDialogOpen(false);
-                      setFormData({ customer_name: '', amount: '', payment_date: '', payment_method: '', notes: '' });
-                      setDate(undefined);
-                    }}
-                    disabled={isLoading}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </form>
-            </DialogContent>
-          </Dialog>
-        </div>
+        <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+          <DialogTrigger asChild>
+            <Button className="bg-green-600 hover:bg-green-700" disabled={isLoading}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add Payment
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Add New Payment</DialogTitle>
+            </DialogHeader>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <Label htmlFor="customer_name">Customer Name *</Label>
+                <Input
+                  id="customer_name"
+                  value={formData.customer_name}
+                  onChange={(e) => setFormData({ ...formData, customer_name: e.target.value })}
+                  placeholder="Enter customer name"
+                  required
+                  disabled={isLoading}
+                />
+              </div>
+              <div>
+                <Label htmlFor="amount">Amount (₹) *</Label>
+                <Input
+                  id="amount"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={formData.amount}
+                  onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+                  placeholder="e.g., 550.00"
+                  required
+                  disabled={isLoading}
+                />
+              </div>
+              <div>
+                <Label htmlFor="payment_date">Payment Date *</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant={"outline"}
+                      className={cn(
+                        "w-[240px] justify-start text-left font-normal",
+                        !date && "text-muted-foreground"
+                      )}
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {date ? format(date, "PPP") : <span>Pick a date</span>}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={date}
+                      onSelect={(date) => {
+                        setDate(date)
+                        setFormData({ ...formData, payment_date: date?.toISOString() || '' })
+                      }}
+                      disabled={isLoading}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+              <div>
+                <Label htmlFor="payment_method">Payment Method *</Label>
+                <Input
+                  id="payment_method"
+                  value={formData.payment_method}
+                  onChange={(e) => setFormData({ ...formData, payment_method: e.target.value })}
+                  placeholder="e.g., Cash, UPI, Card"
+                  required
+                  disabled={isLoading}
+                />
+              </div>
+              <div>
+                <Label htmlFor="notes">Notes</Label>
+                <Input
+                  id="notes"
+                  value={formData.notes}
+                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                  placeholder="Optional notes"
+                  disabled={isLoading}
+                />
+              </div>
+              <div className="flex gap-2 pt-4">
+                <Button type="submit" className="flex-1 bg-green-600 hover:bg-green-700" disabled={isLoading}>
+                  {isLoading ? 'Saving...' : 'Add Payment'}
+                </Button>
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={() => {
+                    setIsAddDialogOpen(false);
+                    setFormData({ customer_name: '', amount: '', payment_date: '', payment_method: '', notes: '' });
+                    setDate(undefined);
+                  }}
+                  disabled={isLoading}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
       </div>
 
       {/* Pending Payments Section */}
