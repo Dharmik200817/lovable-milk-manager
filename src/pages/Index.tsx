@@ -118,24 +118,29 @@ const Index = () => {
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <header className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-4">
-            <div className="flex items-center">
-              <Milk className="h-8 w-8 text-blue-600 mr-3" />
-              <h1 className="text-2xl font-bold text-gray-900">Narmada dairy Milk Management</h1>
+        <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center py-3 sm:py-4 gap-2 sm:gap-4">
+            {/* Logo and Title */}
+            <div className="flex items-center w-full sm:w-auto">
+              <Milk className="h-6 w-6 sm:h-8 sm:w-8 text-blue-600 mr-2 sm:mr-3 flex-shrink-0" />
+              <h1 className="text-sm sm:text-xl lg:text-2xl font-bold text-gray-900 truncate">
+                Narmada Dairy Milk Management
+              </h1>
             </div>
-            <div className="flex items-center gap-4">
-              <span className="text-sm text-gray-600">
-                Welcome, {user.email}
+            
+            {/* User Info and Sign Out */}
+            <div className="flex items-center justify-between w-full sm:w-auto gap-2 sm:gap-4">
+              <span className="text-xs sm:text-sm text-gray-600 truncate max-w-[150px] sm:max-w-none">
+                {user.email}
               </span>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={signOut}
-                className="flex items-center gap-2"
+                className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm px-2 sm:px-3 py-1 sm:py-2 h-8 sm:h-9"
               >
-                <LogOut className="h-4 w-4" />
-                Sign Out
+                <LogOut className="h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden sm:inline">Sign Out</span>
               </Button>
             </div>
           </div>
@@ -147,7 +152,7 @@ const Index = () => {
         <div className="max-w-7xl mx-auto px-0 sm:px-6 lg:px-8">
           {/* Scrollable navigation on mobile */}
           <div
-            className="flex space-x-2 sm:space-x-8 overflow-x-auto no-scrollbar scrollbar-hide py-1 px-1 sm:px-0"
+            className="flex space-x-1 sm:space-x-4 overflow-x-auto no-scrollbar scrollbar-hide py-1 px-1 sm:px-0"
             style={{ WebkitOverflowScrolling: 'touch' }}
           >
             {tabs.map(tab => {
@@ -158,16 +163,16 @@ const Index = () => {
                   onClick={() => handleTabChange(tab.id)}
                   className={`
                     flex items-center flex-shrink-0
-                    py-3 px-3 sm:px-4 border-b-2 font-medium text-xs sm:text-sm
-                    rounded-t-lg transition-colors
+                    py-2 sm:py-3 px-2 sm:px-4 border-b-2 font-medium text-xs sm:text-sm
+                    rounded-t-lg transition-colors min-h-[44px] sm:min-h-auto
                     ${activeTab === tab.id
                       ? 'border-blue-500 text-blue-600 bg-blue-50'
                       : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}
                   `}
-                  style={{ minWidth: 110 }}
+                  style={{ minWidth: 85 }}
                 >
-                  <Icon className="h-5 w-5 mr-1 sm:mr-2" />
-                  {tab.label}
+                  <Icon className="h-4 w-4 sm:h-5 sm:w-5 mr-1 sm:mr-2" />
+                  <span className="whitespace-nowrap">{tab.label}</span>
                 </button>
               );
             })}
@@ -176,7 +181,7 @@ const Index = () => {
       </nav>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-1 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-1 sm:px-4 lg:px-8 py-2 sm:py-4 lg:py-8">
         {renderContent()}
       </main>
     </div>
@@ -184,4 +189,3 @@ const Index = () => {
 };
 
 export default Index;
-

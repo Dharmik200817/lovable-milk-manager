@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -414,28 +415,28 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
 
       rows.push(
         <TableRow key={i} className="border-b">
-          <TableCell className="text-center text-sm font-medium p-2 w-12 border-r">
+          <TableCell className="text-center text-xs sm:text-sm font-medium p-1 sm:p-2 w-8 sm:w-12 border-r">
             {leftDay || ''}
           </TableCell>
-          <TableCell className="text-center text-xs p-1 w-16 border-r text-blue-600">
+          <TableCell className="text-center text-xs p-1 w-12 sm:w-16 border-r text-blue-600">
             {leftData.morning}
           </TableCell>
-          <TableCell className="text-center text-xs p-1 w-16 border-r text-purple-600">
+          <TableCell className="text-center text-xs p-1 w-12 sm:w-16 border-r text-purple-600">
             {leftData.evening}
           </TableCell>
-          <TableCell className="text-center text-xs p-1 w-20 border-r text-green-600">
+          <TableCell className="text-center text-xs p-1 w-14 sm:w-20 border-r text-green-600">
             {leftData.grocery}
           </TableCell>
-          <TableCell className="text-center text-sm font-medium p-2 w-12 border-r">
+          <TableCell className="text-center text-xs sm:text-sm font-medium p-1 sm:p-2 w-8 sm:w-12 border-r">
             {rightDay || ''}
           </TableCell>
-          <TableCell className="text-center text-xs p-1 w-16 border-r text-blue-600">
+          <TableCell className="text-center text-xs p-1 w-12 sm:w-16 border-r text-blue-600">
             {rightData.morning}
           </TableCell>
-          <TableCell className="text-center text-xs p-1 w-16 border-r text-purple-600">
+          <TableCell className="text-center text-xs p-1 w-12 sm:w-16 border-r text-purple-600">
             {rightData.evening}
           </TableCell>
-          <TableCell className="text-center text-xs p-1 w-20 text-green-600">
+          <TableCell className="text-center text-xs p-1 w-14 sm:w-20 text-green-600">
             {rightData.grocery}
           </TableCell>
         </TableRow>
@@ -445,14 +446,14 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-20 sm:pb-4">
-      <div className="max-w-6xl mx-auto px-2 sm:px-4 pt-4 sm:pt-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg sm:text-2xl font-bold text-gray-900">Customer Bills</h2>
+    <div className="min-h-screen bg-gray-50 pb-24 sm:pb-4">
+      <div className="max-w-6xl mx-auto px-2 sm:px-4 pt-2 sm:pt-6">
+        <div className="flex items-center justify-between mb-2 sm:mb-4">
+          <h2 className="text-base sm:text-xl lg:text-2xl font-bold text-gray-900">Customer Bills</h2>
         </div>
         
         {/* Header Card */}
-        <Card className="bg-white shadow-sm rounded-lg px-3 py-4 sm:px-6 sm:py-6 border border-gray-200 mb-4">
+        <Card className="bg-white shadow-sm rounded-lg px-2 py-3 sm:px-6 sm:py-6 border border-gray-200 mb-2 sm:mb-4">
           <CustomerBillsHeader
             customers={customers}
             selectedCustomer={selectedCustomer}
@@ -504,30 +505,30 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
         {/* Main Bill Card */}
         {selectedCustomer && (
           <Card className="bg-white shadow-sm rounded-lg border border-gray-200 mb-4">
-            <div className="p-4 sm:p-6">
+            <div className="p-2 sm:p-4 lg:p-6">
               {/* Bill Header */}
-              <div className="text-center mb-6 border-b-2 border-blue-500 pb-4">
-                <h1 className="text-2xl sm:text-3xl font-bold text-blue-600 mb-2">NARMADA DAIRY</h1>
-                <h2 className="text-lg sm:text-xl font-semibold text-gray-700">Monthly Bill</h2>
-                <div className="mt-3 text-sm text-gray-600">
-                  <p className="font-medium">{customers.find(c => c.id === selectedCustomer)?.name}</p>
-                  <p>{format(selectedDate, 'MMMM yyyy')}</p>
+              <div className="text-center mb-4 sm:mb-6 border-b-2 border-blue-500 pb-3 sm:pb-4">
+                <h1 className="text-lg sm:text-2xl lg:text-3xl font-bold text-blue-600 mb-1 sm:mb-2">NARMADA DAIRY</h1>
+                <h2 className="text-sm sm:text-lg lg:text-xl font-semibold text-gray-700">Monthly Bill</h2>
+                <div className="mt-2 sm:mt-3 text-xs sm:text-sm text-gray-600">
+                  <p className="font-medium text-sm sm:text-base">{customers.find(c => c.id === selectedCustomer)?.name}</p>
+                  <p className="text-xs sm:text-sm">{format(selectedDate, 'MMMM yyyy')}</p>
                 </div>
               </div>
 
               {/* Traditional Table Layout */}
-              <div className="overflow-x-auto mb-6">
-                <Table className="w-full border-2 border-gray-400">
+              <div className="overflow-x-auto mb-4 sm:mb-6">
+                <Table className="w-full border-2 border-gray-400 min-w-[300px]">
                   <TableHeader>
                     <TableRow className="bg-blue-50 border-b-2 border-gray-400">
-                      <TableHead className="text-center text-sm font-bold border-r border-gray-400 p-2">Date</TableHead>
-                      <TableHead className="text-center text-sm font-bold border-r border-gray-400 p-1">Morning</TableHead>
-                      <TableHead className="text-center text-sm font-bold border-r border-gray-400 p-1">Evening</TableHead>
-                      <TableHead className="text-center text-sm font-bold border-r border-gray-400 p-1">Grocery</TableHead>
-                      <TableHead className="text-center text-sm font-bold border-r border-gray-400 p-2">Date</TableHead>
-                      <TableHead className="text-center text-sm font-bold border-r border-gray-400 p-1">Morning</TableHead>
-                      <TableHead className="text-center text-sm font-bold border-r border-gray-400 p-1">Evening</TableHead>
-                      <TableHead className="text-center text-sm font-bold p-1">Grocery</TableHead>
+                      <TableHead className="text-center text-xs sm:text-sm font-bold border-r border-gray-400 p-1 sm:p-2">Date</TableHead>
+                      <TableHead className="text-center text-xs sm:text-sm font-bold border-r border-gray-400 p-1">Morning</TableHead>
+                      <TableHead className="text-center text-xs sm:text-sm font-bold border-r border-gray-400 p-1">Evening</TableHead>
+                      <TableHead className="text-center text-xs sm:text-sm font-bold border-r border-gray-400 p-1">Grocery</TableHead>
+                      <TableHead className="text-center text-xs sm:text-sm font-bold border-r border-gray-400 p-1 sm:p-2">Date</TableHead>
+                      <TableHead className="text-center text-xs sm:text-sm font-bold border-r border-gray-400 p-1">Morning</TableHead>
+                      <TableHead className="text-center text-xs sm:text-sm font-bold border-r border-gray-400 p-1">Evening</TableHead>
+                      <TableHead className="text-center text-xs sm:text-sm font-bold p-1">Grocery</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -537,30 +538,30 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
               </div>
 
               {/* Summary Section */}
-              <div className="border-t-2 border-gray-300 pt-4">
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
-                  <div className="bg-blue-50 p-3 rounded">
+              <div className="border-t-2 border-gray-300 pt-3 sm:pt-4">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 text-center">
+                  <div className="bg-blue-50 p-2 sm:p-3 rounded">
                     <p className="text-xs text-gray-600">Total Milk</p>
-                    <p className="text-lg font-bold text-blue-600">{totalMilk.toFixed(1)}L</p>
+                    <p className="text-sm sm:text-lg font-bold text-blue-600">{totalMilk.toFixed(1)}L</p>
                   </div>
-                  <div className="bg-green-50 p-3 rounded">
+                  <div className="bg-green-50 p-2 sm:p-3 rounded">
                     <p className="text-xs text-gray-600">Milk Amount</p>
-                    <p className="text-lg font-bold text-green-600">₹{totalMilkAmount.toFixed(0)}</p>
+                    <p className="text-sm sm:text-lg font-bold text-green-600">₹{totalMilkAmount.toFixed(0)}</p>
                   </div>
-                  <div className="bg-purple-50 p-3 rounded">
+                  <div className="bg-purple-50 p-2 sm:p-3 rounded">
                     <p className="text-xs text-gray-600">Grocery</p>
-                    <p className="text-lg font-bold text-purple-600">₹{totalGroceryAmount.toFixed(0)}</p>
+                    <p className="text-sm sm:text-lg font-bold text-purple-600">₹{totalGroceryAmount.toFixed(0)}</p>
                   </div>
-                  <div className="bg-yellow-50 p-3 rounded border-2 border-yellow-400">
+                  <div className="bg-yellow-50 p-2 sm:p-3 rounded border-2 border-yellow-400">
                     <p className="text-xs text-gray-600">Grand Total</p>
-                    <p className="text-xl font-bold text-orange-600">₹{grandTotal.toFixed(0)}</p>
+                    <p className="text-base sm:text-xl font-bold text-orange-600">₹{grandTotal.toFixed(0)}</p>
                   </div>
                 </div>
                 
                 {pendingBalance > 0 && (
-                  <div className="mt-4 text-center">
-                    <div className="inline-block bg-red-50 px-4 py-2 rounded border-2 border-red-200">
-                      <p className="text-sm text-gray-600">Previous Balance: <span className="text-red-600 font-bold">₹{pendingBalance.toFixed(0)}</span></p>
+                  <div className="mt-3 sm:mt-4 text-center">
+                    <div className="inline-block bg-red-50 px-3 sm:px-4 py-2 rounded border-2 border-red-200">
+                      <p className="text-xs sm:text-sm text-gray-600">Previous Balance: <span className="text-red-600 font-bold">₹{pendingBalance.toFixed(0)}</span></p>
                     </div>
                   </div>
                 )}
@@ -572,11 +573,11 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
 
       {/* Fixed Mobile Actions */}
       {selectedCustomer && (
-        <div className="fixed inset-x-0 bottom-0 z-50 bg-white/95 backdrop-blur-sm border-t shadow-lg px-2 py-2 sm:hidden">
+        <div className="fixed inset-x-0 bottom-0 z-50 bg-white/95 backdrop-blur-sm border-t shadow-lg px-3 py-3 sm:hidden">
           <div className="flex gap-2 max-w-md mx-auto">
             <Button
-              size="sm"
-              className="flex-1 rounded-lg text-xs h-10"
+              size="lg"
+              className="flex-1 rounded-lg text-sm h-12 font-medium"
               onClick={async () => {
                 if (!selectedCustomer) return;
                 const pdfBlob = await generatePDFBlob({
@@ -593,29 +594,29 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
               }}
               disabled={isLoading}
             >
-              <Download className="w-4 h-4 mr-1" />
+              <Download className="w-5 h-5 mr-2" />
               PDF
             </Button>
             <Button
-              size="sm"
+              size="lg"
               variant="outline"
-              className="flex-1 rounded-lg text-xs h-10"
+              className="flex-1 rounded-lg text-sm h-12 font-medium bg-green-50 border-green-200 text-green-700 hover:bg-green-100"
               disabled={!customers.find(c => c.id === selectedCustomer)?.phone_number}
               onClick={() => {
                 const customer = customers.find(c => c.id === selectedCustomer);
                 if (customer) sendWhatsAppBill(customer);
               }}
             >
-              <MessageCircle className="w-4 h-4 mr-1" />
+              <MessageCircle className="w-5 h-5 mr-2" />
               WhatsApp
             </Button>
             <Button
-              size="sm"
+              size="lg"
               variant="destructive"
-              className="flex-1 rounded-lg text-xs h-10"
+              className="flex-1 rounded-lg text-sm h-12 font-medium"
               onClick={() => setClearPasswordDialog(true)}
             >
-              <Trash2 className="w-4 h-4 mr-1" />
+              <Trash2 className="w-5 h-5 mr-2" />
               Clear
             </Button>
           </div>
