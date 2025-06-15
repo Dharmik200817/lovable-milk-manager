@@ -61,8 +61,8 @@ export async function generatePDFBlob({
       totalMilkAmount += day.totalMilkAmount;
     });
     const totalMonthlyAmount = totalMilkAmount + totalGroceryAmount;
-    const grandTotal = totalMonthlyAmount + pendingBalance;
-    const pendingAfterPayment = Math.max(0, grandTotal - (monthlyPayments || 0));
+    const totalOutstanding = totalMonthlyAmount + pendingBalance; // Combined outstanding
+    const pendingAfterPayment = Math.max(0, totalOutstanding - (monthlyPayments || 0));
 
     const pdf = new jsPDF();
     const pageWidth = pdf.internal.pageSize.getWidth();
@@ -127,18 +127,27 @@ export async function generatePDFBlob({
     y += 15;
     pdf.setTextColor(51,65,85); pdf.setFont("helvetica","normal"); pdf.setFontSize(11);
 
-    // Always show previous balance (even if 0), always show payment and pending if payment made
+    // Updated summary to show combined outstanding clearly
     const summaryItems=[
       [`Total Milk Quantity:`,`${totalMilk} Liters`],
       [`Milk Amount:`,`${totalMilkAmount.toFixed(2)}`],
       [`Grocery Amount:`,`${totalGroceryAmount.toFixed(2)}`],
-      [`Monthly Total:`,`${totalMonthlyAmount.toFixed(2)}`],
-      [`Previous Balance:`,`${pendingBalance.toFixed(2)}`]
+      [`Current Month Total:`,`${totalMonthlyAmount.toFixed(2)}`]
     ];
+    
+    // Always show previous balance if any
+    if (pendingBalance > 0) {
+      summaryItems.push([`Previous Outstanding:`,`${pendingBalance.toFixed(2)}`]);
+    }
+    
+    // Show combined total outstanding
+    summaryItems.push([`Total Outstanding:`,`${totalOutstanding.toFixed(2)}`]);
+    
     if (monthlyPayments > 0) {
       summaryItems.push([`Payment Received:`, `${monthlyPayments.toFixed(2)}`]);
-      summaryItems.push([`Pending After Payment:`, `${pendingAfterPayment.toFixed(2)}`]);
+      summaryItems.push([`Balance After Payment:`, `${pendingAfterPayment.toFixed(2)}`]);
     }
+    
     summaryItems.forEach(([label,value])=>{
       pdf.text(label,25,y); pdf.text(value,120,y); y+=8;
     });
@@ -151,11 +160,11 @@ export async function generatePDFBlob({
     let totalDisplayValue = '';
     if (monthlyPayments > 0) {
       totalDisplayValue = `${Math.round(pendingAfterPayment)}`;
+      pdf.text("BALANCE DUE:", 25, y);
     } else {
-      totalDisplayValue = `${Math.round(grandTotal)}`;
+      totalDisplayValue = `${Math.round(totalOutstanding)}`;
+      pdf.text("TOTAL OUTSTANDING:", 25, y);
     }
-
-    pdf.text("TOTAL AMOUNT:", 25, y);
     pdf.text(totalDisplayValue, 120, y);
 
     y += 20;
