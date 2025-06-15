@@ -27,9 +27,15 @@ export const PendingPayments = ({ onViewCustomer }: PendingPaymentsProps) => {
   const loadPendingPayments = async () => {
     try {
       setIsLoading(true);
+      
+      // Query customer_balances table with customer names
       const { data, error } = await supabase
-        .from('customer_balances_view')
-        .select('*')
+        .from('customer_balances')
+        .select(`
+          customer_id,
+          pending_amount,
+          customers!inner(name)
+        `)
         .gt('pending_amount', 0)
         .order('pending_amount', { ascending: false });
 
@@ -38,7 +44,14 @@ export const PendingPayments = ({ onViewCustomer }: PendingPaymentsProps) => {
         throw error;
       }
 
-      setPendingPayments(data || []);
+      // Transform the data to match our interface
+      const transformedData = data?.map(item => ({
+        customer_id: item.customer_id,
+        customer_name: item.customers.name,
+        pending_amount: item.pending_amount
+      })) || [];
+
+      setPendingPayments(transformedData);
     } catch (error) {
       console.error('Error loading pending payments:', error);
       toast({

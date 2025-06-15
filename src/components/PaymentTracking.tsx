@@ -5,6 +5,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Calendar } from '@/components/ui/calendar';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -33,12 +40,18 @@ interface Payment {
   created_at: string;
 }
 
+interface Customer {
+  id: string;
+  name: string;
+}
+
 interface PaymentTrackingProps {
   onNavigateToDelivery?: (customerId: string) => void;
 }
 
 export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) => {
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -52,7 +65,32 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
 
   useEffect(() => {
     loadPayments();
+    loadCustomers();
   }, []);
+
+  const loadCustomers = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('customers')
+        .select('id, name')
+        .order('name');
+      
+      if (error) {
+        console.error('Error loading customers:', error);
+        throw error;
+      }
+      
+      setCustomers(data || []);
+    } catch (error) {
+      console.error('Error loading customers:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load customers",
+        variant: "destructive",
+        duration: 2000
+      });
+    }
+  };
 
   const loadPayments = async () => {
     try {
@@ -168,14 +206,22 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <Label htmlFor="customer_name">Customer Name *</Label>
-                <Input
-                  id="customer_name"
+                <Select
                   value={formData.customer_name}
-                  onChange={(e) => setFormData({ ...formData, customer_name: e.target.value })}
-                  placeholder="Enter customer name"
-                  required
+                  onValueChange={(value) => setFormData({ ...formData, customer_name: value })}
                   disabled={isLoading}
-                />
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a customer" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {customers.map((customer) => (
+                      <SelectItem key={customer.id} value={customer.name}>
+                        {customer.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <Label htmlFor="amount">Amount (₹) *</Label>
@@ -266,7 +312,6 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
       {/* Pending Payments Section */}
       <PendingPayments onViewCustomer={onNavigateToDelivery} />
 
-      {/* Payment List */}
       <Card className="overflow-hidden">
         <div className="p-4 border-b">
           <h3 className="text-lg font-semibold text-gray-800">Payment History</h3>
