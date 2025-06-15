@@ -10,6 +10,7 @@ import { buildWhatsAppBillMessage } from "@/utils/whatsappMessage";
 import { saveAs } from "file-saver";
 import { CustomerBillsHeader } from "./CustomerBillsHeader";
 import { Download, MessageCircle, Trash2 } from "lucide-react";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from '@/components/ui/table';
 
 interface Customer {
   id: string;
@@ -372,196 +373,70 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
     const daysInMonth = getDaysInMonth(selectedDate);
     const firstDay = startOfMonth(selectedDate);
     const rows: any[] = [];
+    
     for (let d = 1; d <= daysInMonth; d++) {
       const dateObj = addDays(firstDay, d - 1);
       const dateStr = format(dateObj, "yyyy-MM-dd");
       const readableDate = format(dateObj, "dd MMM");
       const dayData = monthlyData[dateStr];
+      
       const morning = dayData?.entries.find(e =>
         e.time.toLowerCase().includes('morning')
       );
-      const groceryItems = morning
+      const evening = dayData?.entries.find(e =>
+        e.time.toLowerCase().includes('evening')
+      );
+      
+      const groceryItems = morning?.grocery.items.length > 0 
         ? morning.grocery.items.map((item, idx) =>
-            <span key={idx}>
+            <span key={idx} className="text-xs">
               {item.name}
-              {item.price ? ` (${item.price})` : ""}
+              {item.price ? ` (₹${item.price})` : ""}
               {idx !== morning.grocery.items.length - 1 ? ', ' : ''}
             </span>
           )
-        : null;
+        : <span className="text-gray-400 text-xs">–</span>;
 
       rows.push(
-        <tr key={dateStr} className="border-b last:border-b-0">
-          <td className="p-1 sm:p-2 text-xs sm:text-sm text-gray-700">{readableDate}</td>
-          <td className="p-1 sm:p-2 text-xs sm:text-sm text-blue-700">
+        <TableRow key={dateStr}>
+          <TableCell className="p-1 sm:p-2 text-xs font-medium">{readableDate}</TableCell>
+          <TableCell className="p-1 sm:p-2 text-xs text-blue-700">
             {morning
-              ? `${(morning.milkQuantity || 0).toFixed(2)} L` +
-                (morning.milkType ? ` (${morning.milkType})` : "")
-              : <span className="text-gray-300">–</span>}
-          </td>
-          <td className="p-1 sm:p-2 text-xs sm:text-sm text-green-700">
-            {morning && morning.grocery.items.length > 0
-              ? groceryItems
-              : <span className="text-gray-300">–</span>
-            }
-          </td>
-        </tr>
+              ? `${(morning.milkQuantity || 0).toFixed(1)}L` +
+                (morning.milkType ? ` (${morning.milkType.substring(0, 3)})` : "")
+              : <span className="text-gray-400">–</span>}
+          </TableCell>
+          <TableCell className="p-1 sm:p-2 text-xs text-purple-700">
+            {evening
+              ? `${(evening.milkQuantity || 0).toFixed(1)}L` +
+                (evening.milkType ? ` (${evening.milkType.substring(0, 3)})` : "")
+              : <span className="text-gray-400">–</span>}
+          </TableCell>
+          <TableCell className="p-1 sm:p-2 text-xs text-green-700">
+            {groceryItems}
+          </TableCell>
+        </TableRow>
       );
     }
     return rows;
   };
 
   return (
-    <div className="relative min-h-[70vh] flex flex-col items-center">
-      <div className="w-full max-w-xl flex items-center justify-between px-2 pt-6 pb-2">
-        <h2 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-900">Customer Bills</h2>
-      </div>
-      <Card className="w-full max-w-xl bg-white shadow-xl rounded-2xl px-2 py-4 sm:px-6 sm:py-6 border border-gray-100 mb-4">
-        <CustomerBillsHeader
-          customers={customers}
-          selectedCustomer={selectedCustomer}
-          setSelectedCustomer={setSelectedCustomer}
-          selectedDate={selectedDate}
-          setSelectedDate={setSelectedDate}
-          generatePDF={async () => {
-            if (!selectedCustomer) return;
-            const pdfBlob = await generatePDFBlob({
-              customer: customers.find(c => c.id === selectedCustomer),
-              selectedDate,
-              monthlyData,
-              pendingBalance,
-            });
-            if (!pdfBlob) {
-              toast({ title: "Error", description: "PDF generation failed", variant: "destructive" });
-              return;
-            }
-            saveAs(pdfBlob, `${customers.find(c => c.id === selectedCustomer)?.name.replace(/\s+/g, '_')}_${format(selectedDate, 'MMMM_yyyy')}.pdf`);
-          }}
-          sendWhatsAppBill={(customerIdOrObj) => {
-            let customer: Customer | undefined;
-            if (typeof customerIdOrObj === "string") {
-              customer = customers.find(c => c.id === customerIdOrObj);
-            } else {
-              customer = customerIdOrObj;
-            }
-            if (customer && typeof customer.address === "string" && customer.address.trim() !== "") {
-              sendWhatsAppBill(customer);
-            } else {
-              toast({
-                title: "Error",
-                description: "Customer details not found or incomplete.",
-                variant: "destructive"
-              });
-            }
-          }}
-          isUploadingPDF={isUploadingPDF}
-          isLoading={isLoading}
-          clearPasswordDialog={clearPasswordDialog}
-          setClearPasswordDialog={setClearPasswordDialog}
-          password={password}
-          setPassword={setPassword}
-          pendingBalance={pendingBalance}
-          handleClearPayment={async () => {
-            if (password !== '123') {
-              toast({
-                title: "Error",
-                description: "Incorrect password",
-                variant: "destructive"
-              });
-              setPassword('');
-              return;
-            }
-  
-            try {
-              const customer = customers.find(c => c.id === selectedCustomer);
-              if (!customer) return;
-  
-              if (pendingBalance > 0) {
-                const { error: paymentError } = await supabase
-                  .from('payments')
-                  .insert({
-                    customer_name: customer.name,
-                    amount: pendingBalance,
-                    payment_method: 'Balance Clear',
-                    payment_date: format(new Date(), 'yyyy-MM-dd')
-                  });
-  
-                if (paymentError) throw paymentError;
-  
-                toast({
-                  title: "Success",
-                  description: `Outstanding balance of ${pendingBalance.toFixed(2)} cleared for ${customer.name}`,
-                  duration: 2000
-                });
-              } else {
-                toast({
-                  title: "Info",
-                  description: "No outstanding balance to clear",
-                  duration: 2000
-                });
-              }
-  
-              setClearPasswordDialog(false);
-              setPassword('');
-              loadPendingBalance();
-            } catch (error) {
-              toast({
-                title: "Error",
-                description: "Failed to clear balance",
-                variant: "destructive",
-                duration: 2000
-              });
-            }
-          }}
-        />
-      </Card>
-      {selectedCustomer && (
-        <Card className="w-full max-w-xl bg-white shadow-lg rounded-2xl px-2 py-4 sm:px-4 mb-16 border border-gray-100">
-          <table className="min-w-full text-xs sm:text-sm">
-            <thead>
-              <tr className="bg-gray-50 text-gray-700">
-                <th className="rounded-l-lg p-2 font-semibold">Date</th>
-                <th className="p-2 font-semibold">Morning</th>
-                <th className="rounded-r-lg p-2 font-semibold">Grocery</th>
-              </tr>
-            </thead>
-            <tbody>
-              {buildTableRows()}
-            </tbody>
-            <tfoot>
-              <tr className="border-t bg-gray-50">
-                <td className="p-2 font-bold text-right">Total:</td>
-                <td className="p-2 font-bold text-blue-800">
-                  {totalMilk.toFixed(2)} L&nbsp;
-                  <span className="text-xs text-gray-400 font-normal">(₹{totalMilkAmount.toFixed(2)})</span>
-                </td>
-                <td className="p-2 font-bold text-green-800">₹{totalGroceryAmount.toFixed(2)}</td>
-              </tr>
-              <tr className="bg-purple-50">
-                <td className="p-2 font-bold text-right rounded-bl-lg">Monthly:</td>
-                <td className="p-2 font-bold text-purple-700" colSpan={2}>₹{totalMonthlyAmount.toFixed(2)}</td>
-              </tr>
-              {pendingBalance > 0 && (
-                <tr className="bg-orange-50">
-                  <td className="p-2 text-right font-semibold">Previous Balance:</td>
-                  <td className="p-2 font-semibold text-red-700" colSpan={2}>₹{pendingBalance.toFixed(2)}</td>
-                </tr>
-              )}
-              <tr className="bg-yellow-100">
-                <td className="p-2 font-bold text-right rounded-bl-2xl">Grand Total:</td>
-                <td className="p-2 font-bold text-orange-700" colSpan={2}>₹{grandTotal.toFixed(2)}</td>
-              </tr>
-            </tfoot>
-          </table>
-        </Card>
-      )}
-
-      {selectedCustomer && (
-        <div className="fixed inset-x-0 bottom-0 z-50 bg-white/90 px-2 pb-[env(safe-area-inset-bottom)] pt-2 shadow-2xl border-t flex gap-2 sm:hidden">
-          <Button
-            size="lg"
-            className="flex-1 rounded-xl shadow-md text-base"
-            onClick={async () => {
+    <div className="min-h-screen bg-gray-50 pb-20 sm:pb-4">
+      <div className="max-w-4xl mx-auto px-2 sm:px-4 pt-4 sm:pt-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg sm:text-2xl font-bold text-gray-900">Customer Bills</h2>
+        </div>
+        
+        {/* Header Card */}
+        <Card className="bg-white shadow-sm rounded-lg px-3 py-4 sm:px-6 sm:py-6 border border-gray-200 mb-4">
+          <CustomerBillsHeader
+            customers={customers}
+            selectedCustomer={selectedCustomer}
+            setSelectedCustomer={setSelectedCustomer}
+            selectedDate={selectedDate}
+            setSelectedDate={setSelectedDate}
+            generatePDF={async () => {
               if (!selectedCustomer) return;
               const pdfBlob = await generatePDFBlob({
                 customer: customers.find(c => c.id === selectedCustomer),
@@ -575,32 +450,130 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
               }
               saveAs(pdfBlob, `${customers.find(c => c.id === selectedCustomer)?.name.replace(/\s+/g, '_')}_${format(selectedDate, 'MMMM_yyyy')}.pdf`);
             }}
-            disabled={isLoading}
-          >
-            <Download className="w-5 h-5 mr-1" />
-            Download
-          </Button>
-          <Button
-            size="lg"
-            variant="outline"
-            className="flex-1 rounded-xl shadow-md text-base"
-            disabled={!customers.find(c => c.id === selectedCustomer)?.phone_number}
-            onClick={() => {
-              const customer = customers.find(c => c.id === selectedCustomer);
-              if (customer) sendWhatsAppBill(customer);
-            }}>
-            <MessageCircle className="w-5 h-5 mr-1" />
-            WhatsApp
-          </Button>
-          <Button
-            size="lg"
-            variant="destructive"
-            className="flex-1 rounded-xl shadow-md text-base"
-            onClick={() => setClearPasswordDialog(true)}
-          >
-            <Trash2 className="w-5 h-5 mr-1" />
-            Clear
-          </Button>
+            sendWhatsAppBill={(customerIdOrObj) => {
+              let customer: Customer | undefined;
+              if (typeof customerIdOrObj === "string") {
+                customer = customers.find(c => c.id === customerIdOrObj);
+              } else {
+                customer = customerIdOrObj;
+              }
+              if (customer && typeof customer.address === "string" && customer.address.trim() !== "") {
+                sendWhatsAppBill(customer);
+              } else {
+                toast({
+                  title: "Error",
+                  description: "Customer details not found or incomplete.",
+                  variant: "destructive"
+                });
+              }
+            }}
+            isUploadingPDF={isUploadingPDF}
+            isLoading={isLoading}
+            clearPasswordDialog={clearPasswordDialog}
+            setClearPasswordDialog={setClearPasswordDialog}
+            password={password}
+            setPassword={setPassword}
+            pendingBalance={pendingBalance}
+            handleClearPayment={handleClearPayment}
+          />
+        </Card>
+
+        {/* Main Table Card */}
+        {selectedCustomer && (
+          <Card className="bg-white shadow-sm rounded-lg border border-gray-200 mb-4">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-gray-50">
+                    <TableHead className="text-xs sm:text-sm font-semibold text-gray-700 p-2 sm:p-3">Date</TableHead>
+                    <TableHead className="text-xs sm:text-sm font-semibold text-blue-700 p-2 sm:p-3">Morning</TableHead>
+                    <TableHead className="text-xs sm:text-sm font-semibold text-purple-700 p-2 sm:p-3">Evening</TableHead>
+                    <TableHead className="text-xs sm:text-sm font-semibold text-green-700 p-2 sm:p-3">Grocery</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {buildTableRows()}
+                </TableBody>
+                <TableFooter>
+                  <TableRow className="bg-gray-50 border-t-2">
+                    <TableCell className="p-2 font-bold text-xs sm:text-sm">Total:</TableCell>
+                    <TableCell className="p-2 font-bold text-blue-800 text-xs sm:text-sm">
+                      {totalMilk.toFixed(1)}L
+                      <div className="text-xs text-gray-500">(₹{totalMilkAmount.toFixed(2)})</div>
+                    </TableCell>
+                    <TableCell className="p-2 text-xs sm:text-sm">–</TableCell>
+                    <TableCell className="p-2 font-bold text-green-800 text-xs sm:text-sm">₹{totalGroceryAmount.toFixed(2)}</TableCell>
+                  </TableRow>
+                  <TableRow className="bg-blue-50">
+                    <TableCell className="p-2 font-bold text-xs sm:text-sm">Monthly:</TableCell>
+                    <TableCell className="p-2 font-bold text-blue-700 text-xs sm:text-sm" colSpan={3}>₹{totalMonthlyAmount.toFixed(2)}</TableCell>
+                  </TableRow>
+                  {pendingBalance > 0 && (
+                    <TableRow className="bg-orange-50">
+                      <TableCell className="p-2 font-semibold text-xs sm:text-sm">Previous:</TableCell>
+                      <TableCell className="p-2 font-semibold text-red-700 text-xs sm:text-sm" colSpan={3}>₹{pendingBalance.toFixed(2)}</TableCell>
+                    </TableRow>
+                  )}
+                  <TableRow className="bg-yellow-100">
+                    <TableCell className="p-2 font-bold text-xs sm:text-sm">Grand Total:</TableCell>
+                    <TableCell className="p-2 font-bold text-orange-700 text-sm sm:text-base" colSpan={3}>₹{grandTotal.toFixed(2)}</TableCell>
+                  </TableRow>
+                </TableFooter>
+              </Table>
+            </div>
+          </Card>
+        )}
+      </div>
+
+      {/* Fixed Mobile Actions */}
+      {selectedCustomer && (
+        <div className="fixed inset-x-0 bottom-0 z-50 bg-white/95 backdrop-blur-sm border-t shadow-lg px-2 py-2 sm:hidden">
+          <div className="flex gap-2 max-w-md mx-auto">
+            <Button
+              size="sm"
+              className="flex-1 rounded-lg text-xs h-10"
+              onClick={async () => {
+                if (!selectedCustomer) return;
+                const pdfBlob = await generatePDFBlob({
+                  customer: customers.find(c => c.id === selectedCustomer),
+                  selectedDate,
+                  monthlyData,
+                  pendingBalance,
+                });
+                if (!pdfBlob) {
+                  toast({ title: "Error", description: "PDF generation failed", variant: "destructive" });
+                  return;
+                }
+                saveAs(pdfBlob, `${customers.find(c => c.id === selectedCustomer)?.name.replace(/\s+/g, '_')}_${format(selectedDate, 'MMMM_yyyy')}.pdf`);
+              }}
+              disabled={isLoading}
+            >
+              <Download className="w-4 h-4 mr-1" />
+              PDF
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="flex-1 rounded-lg text-xs h-10"
+              disabled={!customers.find(c => c.id === selectedCustomer)?.phone_number}
+              onClick={() => {
+                const customer = customers.find(c => c.id === selectedCustomer);
+                if (customer) sendWhatsAppBill(customer);
+              }}
+            >
+              <MessageCircle className="w-4 h-4 mr-1" />
+              WhatsApp
+            </Button>
+            <Button
+              size="sm"
+              variant="destructive"
+              className="flex-1 rounded-lg text-xs h-10"
+              onClick={() => setClearPasswordDialog(true)}
+            >
+              <Trash2 className="w-4 h-4 mr-1" />
+              Clear
+            </Button>
+          </div>
         </div>
       )}
     </div>
