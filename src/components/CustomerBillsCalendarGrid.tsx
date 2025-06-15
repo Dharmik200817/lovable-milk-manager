@@ -143,7 +143,7 @@ export const CustomerBillsCalendarGrid: React.FC<Props> = ({
                       {entryIndex === 0 ? formattedDate : ""}
                     </div>
                     <div className="p-2 text-center border-r text-sm">{entry.time}</div>
-                    <div className="p-2 text-center border-r text-sm">{entry.milkQuantity > 0 ? `${entry.milkQuantity.toFixed(1)}` : '-'}</div>
+                    <div className="p-2 text-center border-r text-sm">{entry.milkQuantity > 0 ? `${entry.milkQuantity}` : '-'}</div>
                     <div className="p-2 text-center text-sm" title={groceryDescription}>
                       {groceryTotal > 0 ? <div className="cursor-help">{groceryTotal.toFixed(2)}</div> : '-'}
                     </div>
@@ -208,7 +208,7 @@ export const CustomerBillsCalendarGrid: React.FC<Props> = ({
                       {entryIndex === 0 ? formattedDate : ""}
                     </div>
                     <div className="p-2 text-center border-r text-sm">{entry.time}</div>
-                    <div className="p-2 text-center border-r text-sm">{entry.milkQuantity > 0 ? `${entry.milkQuantity.toFixed(1)}` : '-'}</div>
+                    <div className="p-2 text-center border-r text-sm">{entry.milkQuantity > 0 ? `${entry.milkQuantity}` : '-'}</div>
                     <div className="p-2 text-center text-sm group relative" title={groceryDescription}>
                       {groceryTotal > 0 ? <div className="cursor-help">{groceryTotal.toFixed(2)}</div> : '-'}
                     </div>

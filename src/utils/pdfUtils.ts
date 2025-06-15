@@ -99,9 +99,9 @@ export async function generatePDFBlob({
         if(totalQty>0){averageRate=totalDayAmount/totalQty;}
         pdf.setFont("helvetica","normal"); pdf.setTextColor(51,65,85); pdf.setFontSize(9);
         pdf.text(day.toString().padStart(2,'0'),25,y);
-        pdf.text(morningQty>0?`${morningQty.toFixed(1)}L`:"-",55,y);
-        pdf.text(eveningQty>0?`${eveningQty.toFixed(1)}L`:"-",85,y);
-        pdf.text(totalQty>0?`${totalQty.toFixed(1)}L`:"-",115,y);
+        pdf.text(morningQty>0?`${morningQty}L`:"-",55,y);
+        pdf.text(eveningQty>0?`${eveningQty}L`:"-",85,y);
+        pdf.text(totalQty>0?`${totalQty}L`:"-",115,y);
         pdf.text(totalQty>0?`${Math.ceil(averageRate)}`:"-",145,y);
         pdf.text(totalDayAmount>0?`${totalDayAmount.toFixed(2)}`:"-",165,y);
         if(groceryItems.length>0){
@@ -124,7 +124,7 @@ export async function generatePDFBlob({
     y+=15;
     pdf.setTextColor(51,65,85); pdf.setFont("helvetica","normal"); pdf.setFontSize(11);
     const summaryItems=[
-      [`Total Milk Quantity:`,`${totalMilk.toFixed(1)} Liters`],
+      [`Total Milk Quantity:`,`${totalMilk} Liters`],
       [`Milk Amount:`,`${totalMilkAmount.toFixed(2)}`],
       [`Grocery Amount:`,`${totalGroceryAmount.toFixed(2)}`],
       [`Monthly Total:`,`${totalMonthlyAmount.toFixed(2)}`]

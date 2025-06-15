@@ -33,7 +33,7 @@ export function buildWhatsAppBillMessage({
 📅 *Period*: ${monthName}
 
 📊 *Bill Summary:*
-• Total Milk: ${totalMilk.toFixed(1)} Liters
+• Total Milk: ${totalMilk} Liters
 • Milk Amount: ${totalMilkAmount.toFixed(2)}
 • Grocery Amount: ${totalGroceryAmount.toFixed(2)}
 • Monthly Total: ${totalMonthlyAmount.toFixed(2)}

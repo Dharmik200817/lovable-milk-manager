@@ -25,7 +25,7 @@ export const CustomerBillsSummary: React.FC<Props> = ({
         <div className="space-y-3">
           <div className="flex justify-between items-center py-2 border-b border-gray-200">
             <span className="text-sm font-medium text-gray-600">Total Milk</span>
-            <span className="text-lg font-bold text-blue-600">{totalMilk.toFixed(1)} L</span>
+            <span className="text-lg font-bold text-blue-600">{totalMilk} L</span>
           </div>
           <div className="flex justify-between items-center py-2 border-b border-gray-200">
             <span className="text-sm font-medium text-gray-600">Milk Amount</span>
