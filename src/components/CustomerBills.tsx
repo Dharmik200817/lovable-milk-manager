@@ -400,14 +400,31 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
         const dateStr = format(dateObj, "yyyy-MM-dd");
         const dayData = monthlyData[dateStr];
         
-        const morning = dayData?.entries.find(e => e.time.toLowerCase().includes('morning'));
-        const evening = dayData?.entries.find(e => e.time.toLowerCase().includes('evening'));
+        if (!dayData || !dayData.hasDelivery) {
+          return { morning: '', evening: '', grocery: '' };
+        }
         
-        const morningQty = morning ? `${morning.milkQuantity.toFixed(1)}L` : '';
-        const eveningQty = evening ? `${evening.milkQuantity.toFixed(1)}L` : '';
-        const groceryTotal = dayData?.totalGroceryAmount > 0 ? `₹${dayData.totalGroceryAmount.toFixed(0)}` : '';
+        let morningQty = 0;
+        let eveningQty = 0;
+        let groceryTotal = 0;
         
-        return { morning: morningQty, evening: eveningQty, grocery: groceryTotal };
+        dayData.entries.forEach(entry => {
+          if (entry.time.toLowerCase().includes('morning')) {
+            morningQty += entry.milkQuantity;
+          } else if (entry.time.toLowerCase().includes('evening')) {
+            eveningQty += entry.milkQuantity;
+          } else {
+            // If time is not specified as morning/evening, assume morning
+            morningQty += entry.milkQuantity;
+          }
+          groceryTotal += entry.grocery.total;
+        });
+        
+        const morningDisplay = morningQty > 0 ? `${morningQty.toFixed(1)}L` : '';
+        const eveningDisplay = eveningQty > 0 ? `${eveningQty.toFixed(1)}L` : '';
+        const groceryDisplay = groceryTotal > 0 ? `₹${groceryTotal.toFixed(0)}` : '';
+        
+        return { morning: morningDisplay, evening: eveningDisplay, grocery: groceryDisplay };
       };
 
       const leftData = getDataForDay(leftDay);
