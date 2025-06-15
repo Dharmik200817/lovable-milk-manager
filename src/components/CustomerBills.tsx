@@ -15,6 +15,9 @@ import jsPDF from 'jspdf';
 import { generatePDFBlob, uploadPdfAndGetUrl, BillCustomer, BillMonthlyData } from "@/utils/pdfUtils";
 import { buildWhatsAppBillMessage } from "@/utils/whatsappMessage";
 import { saveAs } from "file-saver";
+import { CustomerBillsHeader } from "./CustomerBillsHeader";
+import { CustomerBillsCalendarGrid } from "./CustomerBillsCalendarGrid";
+import { CustomerBillsSummary } from "./CustomerBillsSummary";
 
 interface Customer {
   id: string;
@@ -399,271 +402,18 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
     }
   };
 
-  const renderCalendarGrid = () => {
-    const daysInMonth = getDaysInMonth(selectedDate);
-    const monthName = format(selectedDate, 'MMMM / yyyy');
-    
+  const computeSummaryValues = () => {
     let totalMilk = 0;
     let totalGroceryAmount = 0;
     let totalMilkAmount = 0;
-    
     Object.values(monthlyData).forEach(day => {
       totalMilk += day.totalMilkQuantity;
       totalGroceryAmount += day.totalGroceryAmount;
       totalMilkAmount += day.totalMilkAmount;
     });
-    
     const totalMonthlyAmount = totalMilkAmount + totalGroceryAmount;
     const grandTotal = totalMonthlyAmount + pendingBalance;
-
-    const combineEntriesForTime = (entries: DailyEntry[]) => {
-      const timeGroups: { [time: string]: DailyEntry } = {};
-      
-      entries.forEach(entry => {
-        if (timeGroups[entry.time]) {
-          timeGroups[entry.time].milkQuantity += entry.milkQuantity;
-          timeGroups[entry.time].milkAmount += entry.milkAmount;
-          timeGroups[entry.time].grocery.items.push(...entry.grocery.items);
-          timeGroups[entry.time].grocery.total += entry.grocery.total;
-        } else {
-          timeGroups[entry.time] = { ...entry };
-        }
-      });
-      
-      return Object.values(timeGroups).sort((a, b) => {
-        if (a.time === "Morning" && b.time !== "Morning") return -1;
-        if (a.time !== "Morning" && b.time === "Morning") return 1;
-        return 0;
-      });
-    };
-
-    return (
-      <div className="bg-white rounded-lg overflow-hidden border max-w-6xl">
-        <div className="bg-blue-500 text-white text-center py-3">
-          <h3 className="text-lg font-semibold">{customers.find(c => c.id === selectedCustomer)?.name}</h3>
-          <p className="text-sm">{monthName}</p>
-        </div>
-        
-        <div className="grid grid-cols-2 gap-4 p-4">
-          <div className="space-y-2">
-            <h4 className="text-center font-medium text-gray-700 mb-3">Days 1-15</h4>
-            
-            <div className="grid grid-cols-4 bg-gray-100 text-xs font-medium text-gray-700 rounded-t-lg">
-              <div className="p-2 text-center border-r">Date</div>
-              <div className="p-2 text-center border-r">Time</div>
-              <div className="p-2 text-center border-r">Qty(L)</div>
-              <div className="p-2 text-center">Grocery</div>
-            </div>
-            
-            <div className="border border-gray-200 rounded-b-lg">
-              {Array.from({ length: 15 }, (_, i) => {
-                const day = i + 1;
-                const dateStr = format(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day), 'yyyy-MM-dd');
-                const dayData = monthlyData[dateStr];
-                const actualDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day);
-                const formattedDate = format(actualDate, 'd MMM');
-                
-                if (!dayData || !dayData.hasDelivery) {
-                  return (
-                    <div key={day} className="grid grid-cols-4 border-b last:border-b-0">
-                      <div className="p-2 text-center border-r text-sm">{formattedDate}</div>
-                      <div className="p-2 text-center border-r text-sm">-</div>
-                      <div className="p-2 text-center border-r text-sm">-</div>
-                      <div className="p-2 text-center text-sm">-</div>
-                    </div>
-                  );
-                }
-                
-                const combinedEntries = combineEntriesForTime(dayData.entries);
-                
-                return combinedEntries.map((entry, entryIndex) => {
-                  const groceryItems = entry.grocery.items;
-                  const groceryTotal = entry.grocery.total;
-                  const groceryDescription = groceryItems.length > 0 
-                    ? groceryItems.map(item => {
-                        let desc = `${item.name}: ${item.price.toFixed(2)}`;
-                        if (item.description) {
-                          desc += ` (${item.description})`;
-                        }
-                        return desc;
-                      }).join('\n')
-                    : '';
-                  
-                  return (
-                    <div 
-                      key={`${day}-${entryIndex}`} 
-                      className={cn(
-                        "grid grid-cols-4 border-b last:border-b-0 hover:bg-gray-50",
-                        entryIndex > 0 ? "border-t border-dashed border-gray-200" : ""
-                      )}
-                    >
-                      <div className={cn(
-                        "p-2 text-center border-r text-sm",
-                        entryIndex === 0 ? "bg-blue-50 font-medium" : "bg-blue-50/30"
-                      )}>
-                        {entryIndex === 0 ? formattedDate : ""}
-                      </div>
-                      <div className="p-2 text-center border-r text-sm">
-                        {entry.time}
-                      </div>
-                      <div className="p-2 text-center border-r text-sm">
-                        {entry.milkQuantity > 0 ? `${entry.milkQuantity.toFixed(1)}` : '-'}
-                      </div>
-                      <div 
-                        className="p-2 text-center text-sm" 
-                        title={groceryDescription}
-                      >
-                        {groceryTotal > 0 ? (
-                          <div className="cursor-help">
-                            {groceryTotal.toFixed(2)}
-                          </div>
-                        ) : '-'}
-                      </div>
-                    </div>
-                  );
-                });
-              })}
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <h4 className="text-center font-medium text-gray-700 mb-3">Days 16-31</h4>
-            
-            <div className="grid grid-cols-4 bg-gray-100 text-xs font-medium text-gray-700 rounded-t-lg">
-              <div className="p-2 text-center border-r">Date</div>
-              <div className="p-2 text-center border-r">Time</div>
-              <div className="p-2 text-center border-r">Qty(L)</div>
-              <div className="p-2 text-center">Grocery</div>
-            </div>
-            
-            <div className="border border-gray-200 rounded-b-lg">
-              {Array.from({ length: Math.max(0, daysInMonth - 15) }, (_, i) => {
-                const day = i + 16;
-                if (day > daysInMonth) return null;
-                
-                const dateStr = format(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day), 'yyyy-MM-dd');
-                const dayData = monthlyData[dateStr];
-                const actualDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day);
-                const formattedDate = format(actualDate, 'd MMM');
-                
-                if (!dayData || !dayData.hasDelivery) {
-                  return (
-                    <div key={day} className="grid grid-cols-4 border-b last:border-b-0">
-                      <div className="p-2 text-center border-r text-sm">{formattedDate}</div>
-                      <div className="p-2 text-center border-r text-sm">-</div>
-                      <div className="p-2 text-center border-r text-sm">-</div>
-                      <div className="p-2 text-center text-sm">-</div>
-                    </div>
-                  );
-                }
-                
-                const combinedEntries = combineEntriesForTime(dayData.entries);
-                
-                return combinedEntries.map((entry, entryIndex) => {
-                  const groceryItems = entry.grocery.items;
-                  const groceryTotal = entry.grocery.total;
-                  const groceryDescription = groceryItems.length > 0 
-                    ? groceryItems.map(item => {
-                        let desc = `${item.name}: ${item.price.toFixed(2)}`;
-                        if (item.description) {
-                          desc += ` (${item.description})`;
-                        }
-                        return desc;
-                      }).join('\n')
-                    : '';
-                  
-                  return (
-                    <div 
-                      key={`${day}-${entryIndex}`} 
-                      className={cn(
-                        "grid grid-cols-4 border-b last:border-b-0 hover:bg-gray-50",
-                        entryIndex > 0 ? "border-t border-dashed border-gray-200" : ""
-                      )}
-                    >
-                      <div className={cn(
-                        "p-2 text-center border-r text-sm",
-                        entryIndex === 0 ? "bg-blue-50 font-medium" : "bg-blue-50/30"
-                      )}>
-                        {entryIndex === 0 ? formattedDate : ""}
-                      </div>
-                      <div className="p-2 text-center border-r text-sm">
-                        {entry.time}
-                      </div>
-                      <div className="p-2 text-center border-r text-sm">
-                        {entry.milkQuantity > 0 ? `${entry.milkQuantity.toFixed(1)}` : '-'}
-                      </div>
-                      <div 
-                        className="p-2 text-center text-sm group relative" 
-                        title={groceryDescription}
-                      >
-                        {groceryTotal > 0 ? (
-                          <div className="cursor-help">
-                            {groceryTotal.toFixed(2)}
-                          </div>
-                        ) : '-'}
-                      </div>
-                    </div>
-                  );
-                });
-              }).filter(Boolean)}
-              
-              {Array.from({ length: Math.max(0, 31 - daysInMonth) }, (_, i) => (
-                <div key={`empty-${i}`} className="grid grid-cols-4 border-b last:border-b-0">
-                  <div className="p-2 text-center border-r text-sm text-gray-300">-</div>
-                  <div className="p-2 text-center border-r text-sm">-</div>
-                  <div className="p-2 text-center border-r text-sm">-</div>
-                  <div className="p-2 text-center text-sm">-</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {(totalMonthlyAmount > 0 || pendingBalance > 0) && (
-          <div className="bg-gray-50 p-6 border-t">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4 text-center">Monthly Summary & Balance</h3>
-            
-            <div className="grid grid-cols-2 gap-6">
-              <div className="space-y-3">
-                <div className="flex justify-between items-center py-2 border-b border-gray-200">
-                  <span className="text-sm font-medium text-gray-600">Total Milk</span>
-                  <span className="text-lg font-bold text-blue-600">{totalMilk.toFixed(1)} L</span>
-                </div>
-                <div className="flex justify-between items-center py-2 border-b border-gray-200">
-                  <span className="text-sm font-medium text-gray-600">Milk Amount</span>
-                  <span className="text-lg font-bold text-blue-600">{totalMilkAmount.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between items-center py-2 border-b border-gray-200">
-                  <span className="text-sm font-medium text-gray-600">Grocery Amount</span>
-                  <span className="text-lg font-bold text-green-600">{totalGroceryAmount.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between items-center py-2 border-b-2 border-gray-400">
-                  <span className="text-base font-semibold text-gray-700">Total Monthly Amount</span>
-                  <span className="text-xl font-bold text-purple-600">{totalMonthlyAmount.toFixed(2)}</span>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                {pendingBalance > 0 && (
-                  <div className="flex justify-between items-center py-2 border-b border-gray-200">
-                    <span className="text-sm font-medium text-gray-600">Previous Balance</span>
-                    <span className="text-lg font-bold text-red-600">{pendingBalance.toFixed(2)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between items-center py-2 border-b border-gray-200">
-                  <span className="text-sm font-medium text-gray-600">Current Month</span>
-                  <span className="text-lg font-bold text-purple-600">{totalMonthlyAmount.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between items-center py-3 bg-yellow-50 rounded-lg px-3 border-2 border-yellow-300">
-                  <span className="text-lg font-bold text-gray-800">GRAND TOTAL</span>
-                  <span className="text-2xl font-bold text-orange-600">{grandTotal.toFixed(2)}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    );
+    return { totalMilk, totalMilkAmount, totalGroceryAmount, totalMonthlyAmount, grandTotal };
   };
 
   return (
@@ -673,129 +423,23 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
       </div>
 
       <Card className="p-6">
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Select Customer
-            </label>
-            <Select value={selectedCustomer} onValueChange={setSelectedCustomer}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select customer" />
-              </SelectTrigger>
-              <SelectContent>
-                {customers.map(customer => (
-                  <SelectItem key={customer.id} value={customer.id}>
-                    {customer.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Select Month
-            </label>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  className={cn(
-                    "w-full justify-start text-left font-normal",
-                    !selectedDate && "text-muted-foreground"
-                  )}
-                >
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {selectedDate ? format(selectedDate, "MMMM yyyy") : <span>Pick a month</span>}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <Calendar
-                  mode="single"
-                  selected={selectedDate}
-                  onSelect={(date) => date && setSelectedDate(date)}
-                  initialFocus
-                />
-              </PopoverContent>
-            </Popover>
-          </div>
-
-          <div className="flex items-end">
-            <Button
-              onClick={generatePDF}
-              disabled={!selectedCustomer || isLoading}
-              className="w-full flex items-center"
-            >
-              <FileText className="h-4 w-4 mr-2" />
-              Download PDF Bill
-            </Button>
-          </div>
-
-          <div className="flex items-end">
-            <Button
-              onClick={async () => {
-                const customer = customers.find(c => c.id === selectedCustomer);
-                if (customer) await sendWhatsAppBill(customer);
-              }}
-              disabled={!selectedCustomer || isLoading || isUploadingPDF}
-              className="w-full flex items-center bg-green-600 hover:bg-green-700"
-            >
-              <MessageCircle className="h-4 w-4 mr-2" />
-              {isUploadingPDF ? 'Preparing...' : 'Send WhatsApp Bill'}
-            </Button>
-          </div>
-
-          <div className="flex items-end">
-            <Dialog open={clearPasswordDialog} onOpenChange={setClearPasswordDialog}>
-              <DialogTrigger asChild>
-                <Button
-                  variant="destructive"
-                  disabled={!selectedCustomer || isLoading || pendingBalance <= 0}
-                  className="w-full"
-                >
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Clear Balance
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Clear Outstanding Balance</DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4">
-                  <p className="text-sm text-gray-600">
-                    This will clear the outstanding balance of {pendingBalance.toFixed(2)} for this customer by recording a payment. Enter password to confirm:
-                  </p>
-                  <Input
-                    type="password"
-                    placeholder="Enter password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    onKeyPress={(e) => {
-                      if (e.key === 'Enter') {
-                        handleClearPayment();
-                      }
-                    }}
-                  />
-                  <div className="flex gap-2">
-                    <Button onClick={handleClearPayment} variant="destructive" className="flex-1">
-                      Clear Balance
-                    </Button>
-                    <Button
-                      onClick={() => {
-                        setClearPasswordDialog(false);
-                        setPassword('');
-                      }}
-                      variant="outline"
-                      className="flex-1"
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-              </DialogContent>
-            </Dialog>
-          </div>
-        </div>
+        <CustomerBillsHeader
+          customers={customers}
+          selectedCustomer={selectedCustomer}
+          setSelectedCustomer={setSelectedCustomer}
+          selectedDate={selectedDate}
+          setSelectedDate={setSelectedDate}
+          generatePDF={generatePDF}
+          sendWhatsAppBill={async (customer) => await sendWhatsAppBill(customer)}
+          isUploadingPDF={isUploadingPDF}
+          isLoading={isLoading}
+          clearPasswordDialog={clearPasswordDialog}
+          setClearPasswordDialog={setClearPasswordDialog}
+          password={password}
+          setPassword={setPassword}
+          pendingBalance={pendingBalance}
+          handleClearPayment={handleClearPayment}
+        />
       </Card>
 
       {selectedCustomer && (
@@ -805,7 +449,32 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
               <p className="text-center text-gray-500">Loading monthly data...</p>
             </Card>
           ) : (
-            renderCalendarGrid()
+            <>
+              <CustomerBillsCalendarGrid
+                selectedDate={selectedDate}
+                monthlyData={monthlyData}
+                customers={customers}
+                selectedCustomer={selectedCustomer}
+                pendingBalance={pendingBalance}
+              />
+              {/* Render summary ONLY if there are amounts or balances */}
+              {(() => {
+                const { totalMilk, totalMilkAmount, totalGroceryAmount, totalMonthlyAmount, grandTotal } = computeSummaryValues();
+                if (totalMonthlyAmount > 0 || pendingBalance > 0) {
+                  return (
+                    <CustomerBillsSummary
+                      totalMilk={totalMilk}
+                      totalMilkAmount={totalMilkAmount}
+                      totalGroceryAmount={totalGroceryAmount}
+                      totalMonthlyAmount={totalMonthlyAmount}
+                      pendingBalance={pendingBalance}
+                      grandTotal={grandTotal}
+                    />
+                  );
+                }
+                return null;
+              })()}
+            </>
           )}
         </div>
       )}
