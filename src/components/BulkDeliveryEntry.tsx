@@ -8,7 +8,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Calendar as CalendarIcon, Plus, Trash2, ArrowRight, SkipForward } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, addDays } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -440,8 +440,20 @@ export const BulkDeliveryEntry = () => {
         description: `Entry saved for ${currentEntry.customerName}`,
       });
       
-      const nextIndex = (currentCustomerIndex + 1) % customers.length;
-      setCurrentCustomerIndex(nextIndex);
+      const nextIndex = currentCustomerIndex + 1;
+      
+      // If we've reached the end of customers, move to next date
+      if (nextIndex >= customers.length) {
+        const nextDate = addDays(selectedDate, 1);
+        setSelectedDate(nextDate);
+        setCurrentCustomerIndex(0);
+        toast({
+          title: "Date Updated",
+          description: `Moved to next date: ${format(nextDate, 'dd/MM/yyyy')}`,
+        });
+      } else {
+        setCurrentCustomerIndex(nextIndex);
+      }
       
       setCurrentEntry({
         customerId: '',
@@ -458,8 +470,24 @@ export const BulkDeliveryEntry = () => {
   };
 
   const handleSkipCustomer = () => {
-    const nextIndex = (currentCustomerIndex + 1) % customers.length;
-    setCurrentCustomerIndex(nextIndex);
+    const nextIndex = currentCustomerIndex + 1;
+    
+    // If we've reached the end of customers, move to next date
+    if (nextIndex >= customers.length) {
+      const nextDate = addDays(selectedDate, 1);
+      setSelectedDate(nextDate);
+      setCurrentCustomerIndex(0);
+      toast({
+        title: "Date Updated",
+        description: `Skipped ${currentEntry.customerName} and moved to next date: ${format(nextDate, 'dd/MM/yyyy')}`,
+      });
+    } else {
+      setCurrentCustomerIndex(nextIndex);
+      toast({
+        title: "Skipped",
+        description: `Skipped ${currentEntry.customerName}`,
+      });
+    }
     
     setCurrentEntry({
       customerId: '',
@@ -472,11 +500,6 @@ export const BulkDeliveryEntry = () => {
       isGroceryOnly: false,
       deliveryTime: lastDeliveryTime // Keep the delivery time
     });
-
-    toast({
-      title: "Skipped",
-      description: `Skipped ${currentEntry.customerName}`,
-    });
   };
 
   if (customers.length === 0) {
@@ -488,7 +511,7 @@ export const BulkDeliveryEntry = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-20 sm:pb-6">
       <div className="flex items-center justify-between">
         <h2 className="text-3xl font-bold text-gray-900">Bulk Delivery Entry</h2>
       </div>
@@ -549,7 +572,8 @@ export const BulkDeliveryEntry = () => {
           <h3 className="text-xl font-semibold text-blue-600">
             Entry Form - {currentEntry.customerName}
           </h3>
-          <div className="flex gap-2">
+          {/* Desktop buttons */}
+          <div className="hidden sm:flex gap-2">
             <Button
               onClick={handleSkipCustomer}
               variant="outline"
@@ -730,6 +754,40 @@ export const BulkDeliveryEntry = () => {
           </div>
         )}
       </Card>
+
+      {/* Mobile Fixed Action Buttons */}
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-3 sm:hidden z-50">
+        {/* Customer Name Display */}
+        {currentEntry.customerName && (
+          <div className="text-center mb-3">
+            <p className="text-sm font-medium text-gray-900">
+              {currentEntry.customerName}
+            </p>
+            <p className="text-xs text-gray-500">
+              Customer {currentCustomerIndex + 1} of {customers.length}
+            </p>
+          </div>
+        )}
+        
+        <div className="flex gap-2">
+          <Button
+            onClick={handleSkipCustomer}
+            variant="outline"
+            className="flex-1 text-orange-600 hover:text-orange-700 h-12 text-sm"
+          >
+            <SkipForward className="h-4 w-4 mr-1" />
+            Skip
+          </Button>
+          <Button
+            onClick={handleNext}
+            className="flex-1 bg-green-600 hover:bg-green-700 h-12 text-sm"
+            disabled={isLoading}
+          >
+            <ArrowRight className="h-4 w-4 mr-1" />
+            {isLoading ? 'Saving...' : 'Save & Next'}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 };
