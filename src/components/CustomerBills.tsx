@@ -18,6 +18,9 @@ import { saveAs } from "file-saver";
 import { CustomerBillsHeader } from "./CustomerBillsHeader";
 import { CustomerBillsCalendarGrid } from "./CustomerBillsCalendarGrid";
 import { CustomerBillsSummary } from "./CustomerBillsSummary";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useMobile } from '@/hooks/use-mobile'; // custom hook: returns true if mobile
 
 // Ensure Customer includes address (as in DB/table)
 interface Customer {
@@ -418,13 +421,24 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
     return { totalMilk, totalMilkAmount, totalGroceryAmount, totalMonthlyAmount, grandTotal };
   };
 
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-3xl font-bold text-gray-900">Customer Bills</h2>
-      </div>
+  const isMobile = typeof window !== "undefined" ? window.innerWidth < 768 : false;
 
-      <Card className="p-6">
+  const {
+    totalMilk,
+    totalMilkAmount,
+    totalGroceryAmount,
+    totalMonthlyAmount,
+    grandTotal,
+  } = computeSummaryValues();
+
+  return (
+    <div className="relative min-h-[70vh]">
+      <div className={isMobile
+        ? "flex items-center justify-between px-2 pt-4 pb-2"
+        : "flex items-center justify-between"}>
+        <h2 className="text-2xl md:text-3xl font-bold text-gray-900">Customer Bills</h2>
+      </div>
+      <Card className="p-3 sm:p-6 rounded-2xl shadow-md border border-gray-100 bg-white">
         <CustomerBillsHeader
           customers={customers}
           selectedCustomer={selectedCustomer}
@@ -463,28 +477,33 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
           handleClearPayment={handleClearPayment}
         />
       </Card>
-
-      {/* Render rest of component as previously */}
       {selectedCustomer && (
-        <div className="flex justify-center">
+        <div className="mt-4 flex justify-center">
           {isLoading ? (
-            <Card className="p-8">
+            <Card className="w-full max-w-2xl p-8 rounded-2xl shadow-sm border"> {/* mobile padding  */}
               <p className="text-center text-gray-500">Loading monthly data...</p>
             </Card>
           ) : (
-            <>
-              <CustomerBillsCalendarGrid
-                selectedDate={selectedDate}
-                monthlyData={monthlyData}
-                customers={customers}
-                selectedCustomer={selectedCustomer}
-                pendingBalance={pendingBalance}
-              />
-              {/* Render summary ONLY if there are amounts or balances */}
-              {(() => {
-                const { totalMilk, totalMilkAmount, totalGroceryAmount, totalMonthlyAmount, grandTotal } = computeSummaryValues();
-                if (totalMonthlyAmount > 0 || pendingBalance > 0) {
-                  return (
+            <div className="w-full">
+              <Tabs defaultValue={isMobile ? "calendar" : "summary"}
+                className="w-full">
+                <TabsList className="w-full flex bg-gray-100 border rounded-xl mb-3 sticky top-0 z-20">
+                  <TabsTrigger value="calendar" className="flex-1 text-xs sm:text-sm px-2">Details</TabsTrigger>
+                  <TabsTrigger value="summary" className="flex-1 text-xs sm:text-sm px-2">Summary</TabsTrigger>
+                </TabsList>
+                <TabsContent value="calendar" className="w-full px-1 sm:px-2">
+                  <div className="rounded-xl sm:rounded-2xl shadow-xs bg-white">
+                    <CustomerBillsCalendarGrid
+                      selectedDate={selectedDate}
+                      monthlyData={monthlyData}
+                      customers={customers}
+                      selectedCustomer={selectedCustomer}
+                      pendingBalance={pendingBalance}
+                    />
+                  </div>
+                </TabsContent>
+                <TabsContent value="summary" className="px-1 sm:px-2">
+                  {totalMonthlyAmount > 0 || pendingBalance > 0 ? (
                     <CustomerBillsSummary
                       totalMilk={totalMilk}
                       totalMilkAmount={totalMilkAmount}
@@ -493,12 +512,47 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
                       pendingBalance={pendingBalance}
                       grandTotal={grandTotal}
                     />
-                  );
-                }
-                return null;
-              })()}
-            </>
+                  ) : (
+                    <div className="text-center text-gray-400 py-10">No records for this month</div>
+                  )}
+                </TabsContent>
+              </Tabs>
+            </div>
           )}
+        </div>
+      )}
+      {selectedCustomer && (
+        <div className="fixed inset-x-0 bottom-0 z-50 bg-white/90 px-2 pb-[env(safe-area-inset-bottom)] pt-2 shadow-2xl border-t flex gap-2 sm:hidden">
+          <Button
+            size="lg"
+            className="flex-1 rounded-xl shadow-md text-base"
+            onClick={generatePDF}
+            disabled={isLoading}
+          >
+            <Download className="w-5 h-5 mr-1" />
+            Download
+          </Button>
+          <Button
+            size="lg"
+            variant="outline"
+            className="flex-1 rounded-xl shadow-md text-base"
+            disabled={!customers.find(c => c.id === selectedCustomer)?.phone_number}
+            onClick={() => {
+              const customer = customers.find(c => c.id === selectedCustomer);
+              if (customer) sendWhatsAppBill(customer);
+            }}>
+            <MessageCircle className="w-5 h-5 mr-1" />
+            WhatsApp
+          </Button>
+          <Button
+            size="lg"
+            variant="destructive"
+            className="flex-1 rounded-xl shadow-md text-base"
+            onClick={() => setClearPasswordDialog(true)}
+          >
+            <Trash2 className="w-5 h-5 mr-1" />
+            Clear
+          </Button>
         </div>
       )}
     </div>

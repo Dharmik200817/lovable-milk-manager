@@ -19,9 +19,9 @@ export const CustomerBillsSummary: React.FC<Props> = ({
   grandTotal
 }) => {
   return (
-    <div className="bg-gray-50 p-6 border-t">
+    <div className="bg-gray-50 rounded-2xl shadow-md p-4 sm:p-6 my-4 border-t border border-gray-100">
       <h3 className="text-lg font-semibold text-gray-800 mb-4 text-center">Monthly Summary & Balance</h3>
-      <div className="grid grid-cols-2 gap-6">
+      <div className="flex flex-col sm:grid sm:grid-cols-2 gap-4 sm:gap-6">
         <div className="space-y-3">
           <div className="flex justify-between items-center py-2 border-b border-gray-200">
             <span className="text-sm font-medium text-gray-600">Total Milk</span>

@@ -1,232 +1,146 @@
-
 import React from "react";
-import { format, getDaysInMonth } from "date-fns";
-import { cn } from "@/lib/utils";
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Calendar as CalendarIcon, Download, Trash2, FileText, MessageCircle } from 'lucide-react';
+import { format, getDaysInMonth, startOfMonth, addDays } from 'date-fns';
+import { cn } from '@/lib/utils';
+import { toast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
+import jsPDF from 'jspdf';
+import { generatePDFBlob, uploadPdfAndGetUrl, BillCustomer, BillMonthlyData } from "@/utils/pdfUtils";
+import { buildWhatsAppBillMessage } from "@/utils/whatsappMessage";
+import { saveAs } from "file-saver";
+import { Button } from '@/components/ui/button';
 
-interface GroceryItem {
+// Ensure Customer includes address (as in DB/table)
+interface Customer {
+  id: string;
   name: string;
-  price: number;
-  description?: string;
+  address: string;
+  phone_number?: string;
+}
+
+interface DeliveryRecord {
+  id: string;
+  delivery_date: string;
+  notes: string;
+  quantity: number;
+  total_amount: number;
+  price_per_liter: number;
+  milk_types: {
+    name: string;
+  };
+  grocery_items?: {
+    name: string;
+    price: number;
+    description: string;
+  }[];
 }
 
 interface DailyEntry {
   id: string;
-  time: string;
+  time: string; // "Morning" or "Evening" or specific time
   milkQuantity: number;
   milkAmount: number;
   milkType: string;
-  grocery: {
-    items: GroceryItem[];
+  grocery: { 
+    items: Array<{name: string, price: number, description?: string}>;
     total: number;
   };
 }
 
-interface DayData {
-  entries: DailyEntry[];
-  totalMilkQuantity: number;
-  totalMilkAmount: number;
-  totalGroceryAmount: number;
-  hasDelivery: boolean;
-}
-
 interface MonthlyData {
-  [date: string]: DayData;
+  [date: string]: {
+    entries: DailyEntry[];
+    totalMilkQuantity: number;
+    totalMilkAmount: number;
+    totalGroceryAmount: number;
+    hasDelivery: boolean;
+  };
 }
 
-interface Props {
+interface CustomerBillsCalendarGridProps {
   selectedDate: Date;
   monthlyData: MonthlyData;
-  customers: { id: string; name: string }[];
+  customers: Customer[];
   selectedCustomer: string;
   pendingBalance: number;
 }
 
-export const CustomerBillsCalendarGrid: React.FC<Props> = ({
-  selectedDate,
-  monthlyData,
-  customers,
-  selectedCustomer,
-  pendingBalance
-}) => {
+export const CustomerBillsCalendarGrid = ({ selectedDate, monthlyData, customers, selectedCustomer, pendingBalance }: CustomerBillsCalendarGridProps) => {
   const daysInMonth = getDaysInMonth(selectedDate);
-  const monthName = format(selectedDate, 'MMMM / yyyy');
-  let totalMilk = 0;
-  let totalGroceryAmount = 0;
-  let totalMilkAmount = 0;
+  const firstDayOfMonth = startOfMonth(selectedDate);
+  const firstDayOfWeek = firstDayOfMonth.getDay(); // 0 (Sunday) to 6 (Saturday)
+  const monthStartPadding = (firstDayOfWeek + 6) % 7; // Adjust to start from Monday
 
-  Object.values(monthlyData).forEach(day => {
-    totalMilk += day.totalMilkQuantity;
-    totalGroceryAmount += day.totalGroceryAmount;
-    totalMilkAmount += day.totalMilkAmount;
-  });
+  const getDayData = (day: number) => {
+    const date = format(addDays(firstDayOfMonth, day - 1), 'yyyy-MM-dd');
+    return monthlyData[date] || {
+      entries: [],
+      totalMilkQuantity: 0,
+      totalMilkAmount: 0,
+      totalGroceryAmount: 0,
+      hasDelivery: false
+    };
+  };
 
-  const totalMonthlyAmount = totalMilkAmount + totalGroceryAmount;
-  const grandTotal = totalMonthlyAmount + pendingBalance;
+  const renderCalendarDays = () => {
+    const totalCells = daysInMonth + monthStartPadding;
+    const calendarDays = [];
 
-  const combineEntriesForTime = (entries: DailyEntry[]) => {
-    const timeGroups: { [time: string]: DailyEntry } = {};
-    entries.forEach(entry => {
-      if (timeGroups[entry.time]) {
-        timeGroups[entry.time].milkQuantity += entry.milkQuantity;
-        timeGroups[entry.time].milkAmount += entry.milkAmount;
-        timeGroups[entry.time].grocery.items.push(...entry.grocery.items);
-        timeGroups[entry.time].grocery.total += entry.grocery.total;
-      } else {
-        timeGroups[entry.time] = { ...entry };
-      }
-    });
-    return Object.values(timeGroups).sort((a, b) => {
-      if (a.time === "Morning" && b.time !== "Morning") return -1;
-      if (a.time !== "Morning" && b.time === "Morning") return 1;
-      return 0;
-    });
+    for (let i = 1; i <= totalCells; i++) {
+      const day = i - monthStartPadding;
+      const date = format(addDays(firstDayOfMonth, day - 1), 'yyyy-MM-dd');
+      const dayData = day > 0 && day <= daysInMonth ? getDayData(day) : null;
+
+      calendarDays.push(
+        <td key={i} className="px-2 py-2">
+          {day > 0 && day <= daysInMonth ? (
+            <div className="flex flex-col items-center">
+              <span className="text-sm font-medium">{day}</span>
+              {dayData?.hasDelivery && (
+                <span className="text-xs text-blue-500">
+                  {dayData.totalMilkQuantity} L
+                </span>
+              )}
+            </div>
+          ) : null}
+        </td>
+      );
+    }
+
+    const rows = [];
+    for (let i = 0; i < totalCells; i += 7) {
+      rows.push(
+        <tr key={i}>
+          {calendarDays.slice(i, i + 7)}
+        </tr>
+      );
+    }
+
+    return rows;
   };
 
   return (
-    <div className="bg-white rounded-lg overflow-hidden border max-w-6xl">
-      <div className="bg-blue-500 text-white text-center py-3">
-        <h3 className="text-lg font-semibold">{customers.find(c => c.id === selectedCustomer)?.name}</h3>
-        <p className="text-sm">{monthName}</p>
-      </div>
-      <div className="grid grid-cols-2 gap-4 p-4">
-        {/* Days 1–15 */}
-        <div className="space-y-2">
-          <h4 className="text-center font-medium text-gray-700 mb-3">Days 1-15</h4>
-          <div className="grid grid-cols-4 bg-gray-100 text-xs font-medium text-gray-700 rounded-t-lg">
-            <div className="p-2 text-center border-r">Date</div>
-            <div className="p-2 text-center border-r">Time</div>
-            <div className="p-2 text-center border-r">Qty(L)</div>
-            <div className="p-2 text-center">Grocery</div>
-          </div>
-          <div className="border border-gray-200 rounded-b-lg">
-            {Array.from({ length: 15 }, (_, i) => {
-              const day = i + 1;
-              const dateStr = format(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day), 'yyyy-MM-dd');
-              const dayData = monthlyData[dateStr];
-              const actualDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day);
-              const formattedDate = format(actualDate, 'd MMM');
-              if (!dayData || !dayData.hasDelivery) {
-                return (
-                  <div key={day} className="grid grid-cols-4 border-b last:border-b-0">
-                    <div className="p-2 text-center border-r text-sm">{formattedDate}</div>
-                    <div className="p-2 text-center border-r text-sm">-</div>
-                    <div className="p-2 text-center border-r text-sm">-</div>
-                    <div className="p-2 text-center text-sm">-</div>
-                  </div>
-                );
-              }
-              const combinedEntries = combineEntriesForTime(dayData.entries);
-              return combinedEntries.map((entry, entryIndex) => {
-                const groceryItems = entry.grocery.items;
-                const groceryTotal = entry.grocery.total;
-                const groceryDescription = groceryItems.length > 0
-                  ? groceryItems.map(item => {
-                    let desc = `${item.name}: ${item.price.toFixed(2)}`;
-                    if (item.description) {
-                      desc += ` (${item.description})`;
-                    }
-                    return desc;
-                  }).join('\n')
-                  : '';
-                return (
-                  <div
-                    key={`${day}-${entryIndex}`}
-                    className={cn(
-                      "grid grid-cols-4 border-b last:border-b-0 hover:bg-gray-50",
-                      entryIndex > 0 ? "border-t border-dashed border-gray-200" : ""
-                    )}
-                  >
-                    <div className={cn(
-                      "p-2 text-center border-r text-sm",
-                      entryIndex === 0 ? "bg-blue-50 font-medium" : "bg-blue-50/30"
-                    )}>
-                      {entryIndex === 0 ? formattedDate : ""}
-                    </div>
-                    <div className="p-2 text-center border-r text-sm">{entry.time}</div>
-                    <div className="p-2 text-center border-r text-sm">{entry.milkQuantity > 0 ? `${entry.milkQuantity}` : '-'}</div>
-                    <div className="p-2 text-center text-sm" title={groceryDescription}>
-                      {groceryTotal > 0 ? <div className="cursor-help">{groceryTotal.toFixed(2)}</div> : '-'}
-                    </div>
-                  </div>
-                );
-              });
-            })}
-          </div>
-        </div>
-        {/* Days 16–31 */}
-        <div className="space-y-2">
-          <h4 className="text-center font-medium text-gray-700 mb-3">Days 16-31</h4>
-          <div className="grid grid-cols-4 bg-gray-100 text-xs font-medium text-gray-700 rounded-t-lg">
-            <div className="p-2 text-center border-r">Date</div>
-            <div className="p-2 text-center border-r">Time</div>
-            <div className="p-2 text-center border-r">Qty(L)</div>
-            <div className="p-2 text-center">Grocery</div>
-          </div>
-          <div className="border border-gray-200 rounded-b-lg">
-            {Array.from({ length: Math.max(0, daysInMonth - 15) }, (_, i) => {
-              const day = i + 16;
-              if (day > daysInMonth) return null;
-              const dateStr = format(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day), 'yyyy-MM-dd');
-              const dayData = monthlyData[dateStr];
-              const actualDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day);
-              const formattedDate = format(actualDate, 'd MMM');
-              if (!dayData || !dayData.hasDelivery) {
-                return (
-                  <div key={day} className="grid grid-cols-4 border-b last:border-b-0">
-                    <div className="p-2 text-center border-r text-sm">{formattedDate}</div>
-                    <div className="p-2 text-center border-r text-sm">-</div>
-                    <div className="p-2 text-center border-r text-sm">-</div>
-                    <div className="p-2 text-center text-sm">-</div>
-                  </div>
-                );
-              }
-              const combinedEntries = combineEntriesForTime(dayData.entries);
-              return combinedEntries.map((entry, entryIndex) => {
-                const groceryItems = entry.grocery.items;
-                const groceryTotal = entry.grocery.total;
-                const groceryDescription = groceryItems.length > 0
-                  ? groceryItems.map(item => {
-                    let desc = `${item.name}: ${item.price.toFixed(2)}`;
-                    if (item.description) {
-                      desc += ` (${item.description})`;
-                    }
-                    return desc;
-                  }).join('\n')
-                  : '';
-                return (
-                  <div
-                    key={`${day}-${entryIndex}`}
-                    className={cn(
-                      "grid grid-cols-4 border-b last:border-b-0 hover:bg-gray-50",
-                      entryIndex > 0 ? "border-t border-dashed border-gray-200" : ""
-                    )}
-                  >
-                    <div className={cn(
-                      "p-2 text-center border-r text-sm",
-                      entryIndex === 0 ? "bg-blue-50 font-medium" : "bg-blue-50/30"
-                    )}>
-                      {entryIndex === 0 ? formattedDate : ""}
-                    </div>
-                    <div className="p-2 text-center border-r text-sm">{entry.time}</div>
-                    <div className="p-2 text-center border-r text-sm">{entry.milkQuantity > 0 ? `${entry.milkQuantity}` : '-'}</div>
-                    <div className="p-2 text-center text-sm group relative" title={groceryDescription}>
-                      {groceryTotal > 0 ? <div className="cursor-help">{groceryTotal.toFixed(2)}</div> : '-'}
-                    </div>
-                  </div>
-                );
-              });
-            }).filter(Boolean)}
-            {Array.from({ length: Math.max(0, 31 - daysInMonth) }, (_, i) => (
-              <div key={`empty-${i}`} className="grid grid-cols-4 border-b last:border-b-0">
-                <div className="p-2 text-center border-r text-sm text-gray-300">-</div>
-                <div className="p-2 text-center border-r text-sm">-</div>
-                <div className="p-2 text-center border-r text-sm">-</div>
-                <div className="p-2 text-center text-sm">-</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+    <div className="w-full overflow-x-auto rounded-xl shadow-sm border bg-white mb-2">
+      <table className="min-w-[600px] w-full text-xs sm:text-sm leading-tight">
+        <thead>
+          <tr>
+            <th className="px-2 py-2">Mon</th>
+            <th className="px-2 py-2">Tue</th>
+            <th className="px-2 py-2">Wed</th>
+            <th className="px-2 py-2">Thu</th>
+            <th className="px-2 py-2">Fri</th>
+            <th className="px-2 py-2">Sat</th>
+            <th className="px-2 py-2">Sun</th>
+          </tr>
+        </thead>
+        <tbody>
+          {renderCalendarDays()}
+        </tbody>
+      </table>
     </div>
   );
 };
