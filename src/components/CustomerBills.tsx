@@ -2,49 +2,20 @@ import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Calendar } from '@/components/ui/calendar';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Calendar as CalendarIcon, Download, Trash2, FileText, MessageCircle } from 'lucide-react';
-import { format, getDaysInMonth, startOfMonth, addDays } from 'date-fns';
-import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
-import jsPDF from 'jspdf';
-import { generatePDFBlob, uploadPdfAndGetUrl, BillCustomer, BillMonthlyData } from "@/utils/pdfUtils";
+import { format, getDaysInMonth, startOfMonth, addDays } from 'date-fns';
+import { generatePDFBlob, uploadPdfAndGetUrl } from "@/utils/pdfUtils";
 import { buildWhatsAppBillMessage } from "@/utils/whatsappMessage";
 import { saveAs } from "file-saver";
 import { CustomerBillsHeader } from "./CustomerBillsHeader";
-import { CustomerBillsCalendarGrid } from "./CustomerBillsCalendarGrid";
-import { CustomerBillsSummary } from "./CustomerBillsSummary";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useMobile } from '@/hooks/use-mobile'; // custom hook: returns true if mobile
+import { Download, MessageCircle, Trash2 } from "lucide-react";
 
-// Ensure Customer includes address (as in DB/table)
 interface Customer {
   id: string;
   name: string;
   address: string;
   phone_number?: string;
-}
-
-interface DeliveryRecord {
-  id: string;
-  delivery_date: string;
-  notes: string;
-  quantity: number;
-  total_amount: number;
-  price_per_liter: number;
-  milk_types: {
-    name: string;
-  };
-  grocery_items?: {
-    name: string;
-    price: number;
-    description: string;
-  }[];
 }
 
 interface DailyEntry {
@@ -74,9 +45,7 @@ interface CustomerBillsProps {
   onViewRecords?: (customerId: string) => void;
 }
 
-const BILLS_BUCKET = "bills";
-
-export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: CustomerBillsProps) => {
+const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) => {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<string>(preSelectedCustomerId || '');
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
@@ -318,7 +287,6 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
     }
   };
 
-  // Fix the typing here for sendWhatsAppBill - always pass a complete Customer (with address)
   const sendWhatsAppBill = async (customer: Customer) => {
     if (!customer.phone_number) {
       toast({
@@ -339,7 +307,6 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
       });
       if (!pdfBlob) throw new Error("Could not generate PDF");
 
-      // Get the public PDF link (upload if needed)
       const pdfUrl = await uploadPdfAndGetUrl({
         customer,
         selectedDate,
@@ -347,7 +314,6 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
       });
       if (!pdfUrl) throw new Error("Could not upload PDF for WhatsApp message.");
 
-      // Build WhatsApp message body
       const message = buildWhatsAppBillMessage({
         customer,
         selectedDate,
@@ -380,33 +346,6 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
     }
   };
 
-  const generatePDF = async () => {
-    if (!selectedCustomer) return;
-    try {
-      const pdfBlob = await generatePDFBlob({
-        customer: customers.find(c => c.id === selectedCustomer),
-        selectedDate,
-        monthlyData,
-        pendingBalance,
-      });
-      if (!pdfBlob) throw new Error('Could not generate PDF');
-      saveAs(pdfBlob, `${customers.find(c => c.id === selectedCustomer)?.name.replace(/\s+/g, '_')}_${format(selectedDate, 'MMMM_yyyy')}.pdf`);
-      toast({
-        title: "Success",
-        description: "Monthly bill downloaded successfully as PDF",
-        duration: 2000
-      });
-    } catch (error) {
-      console.error('Error generating PDF:', error);
-      toast({
-        title: "Error",
-        description: "Failed to generate PDF bill",
-        variant: "destructive",
-        duration: 2000
-      });
-    }
-  };
-
   const computeSummaryValues = () => {
     let totalMilk = 0;
     let totalGroceryAmount = 0;
@@ -421,8 +360,6 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
     return { totalMilk, totalMilkAmount, totalGroceryAmount, totalMonthlyAmount, grandTotal };
   };
 
-  const isMobile = typeof window !== "undefined" ? window.innerWidth < 768 : false;
-
   const {
     totalMilk,
     totalMilkAmount,
@@ -431,32 +368,82 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
     grandTotal,
   } = computeSummaryValues();
 
+  const buildTableRows = () => {
+    const daysInMonth = getDaysInMonth(selectedDate);
+    const firstDay = startOfMonth(selectedDate);
+    const rows: any[] = [];
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateObj = addDays(firstDay, d - 1);
+      const dateStr = format(dateObj, "yyyy-MM-dd");
+      const readableDate = format(dateObj, "dd MMM");
+      const dayData = monthlyData[dateStr];
+      const morning = dayData?.entries.find(e =>
+        e.time.toLowerCase().includes('morning')
+      );
+      const groceryItems = morning
+        ? morning.grocery.items.map((item, idx) =>
+            <span key={idx}>
+              {item.name}
+              {item.price ? ` (${item.price})` : ""}
+              {idx !== morning.grocery.items.length - 1 ? ', ' : ''}
+            </span>
+          )
+        : null;
+
+      rows.push(
+        <tr key={dateStr} className="border-b last:border-b-0">
+          <td className="p-1 sm:p-2 text-xs sm:text-sm text-gray-700">{readableDate}</td>
+          <td className="p-1 sm:p-2 text-xs sm:text-sm text-blue-700">
+            {morning
+              ? `${(morning.milkQuantity || 0).toFixed(2)} L` +
+                (morning.milkType ? ` (${morning.milkType})` : "")
+              : <span className="text-gray-300">–</span>}
+          </td>
+          <td className="p-1 sm:p-2 text-xs sm:text-sm text-green-700">
+            {morning && morning.grocery.items.length > 0
+              ? groceryItems
+              : <span className="text-gray-300">–</span>
+            }
+          </td>
+        </tr>
+      );
+    }
+    return rows;
+  };
+
   return (
-    <div className="relative min-h-[70vh]">
-      <div className={isMobile
-        ? "flex items-center justify-between px-2 pt-4 pb-2"
-        : "flex items-center justify-between"}>
-        <h2 className="text-2xl md:text-3xl font-bold text-gray-900">Customer Bills</h2>
+    <div className="relative min-h-[70vh] flex flex-col items-center">
+      <div className="w-full max-w-xl flex items-center justify-between px-2 pt-6 pb-2">
+        <h2 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-900">Customer Bills</h2>
       </div>
-      <Card className="p-3 sm:p-6 rounded-2xl shadow-md border border-gray-100 bg-white">
+      <Card className="w-full max-w-xl bg-white shadow-xl rounded-2xl px-2 py-4 sm:px-6 sm:py-6 border border-gray-100 mb-4">
         <CustomerBillsHeader
           customers={customers}
           selectedCustomer={selectedCustomer}
           setSelectedCustomer={setSelectedCustomer}
           selectedDate={selectedDate}
           setSelectedDate={setSelectedDate}
-          generatePDF={generatePDF}
-          // Update how sendWhatsAppBill is passed:
+          generatePDF={async () => {
+            if (!selectedCustomer) return;
+            const pdfBlob = await generatePDFBlob({
+              customer: customers.find(c => c.id === selectedCustomer),
+              selectedDate,
+              monthlyData,
+              pendingBalance,
+            });
+            if (!pdfBlob) {
+              toast({ title: "Error", description: "PDF generation failed", variant: "destructive" });
+              return;
+            }
+            saveAs(pdfBlob, `${customers.find(c => c.id === selectedCustomer)?.name.replace(/\s+/g, '_')}_${format(selectedDate, 'MMMM_yyyy')}.pdf`);
+          }}
           sendWhatsAppBill={(customerIdOrObj) => {
-            // always pass a full Customer object to sendWhatsAppBill
-            // if the param is just an id (string), find the customer
             let customer: Customer | undefined;
             if (typeof customerIdOrObj === "string") {
               customer = customers.find(c => c.id === customerIdOrObj);
             } else {
               customer = customerIdOrObj;
             }
-            // Ensure 'customer' includes 'address':
             if (customer && typeof customer.address === "string" && customer.address.trim() !== "") {
               sendWhatsAppBill(customer);
             } else {
@@ -474,59 +461,120 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
           password={password}
           setPassword={setPassword}
           pendingBalance={pendingBalance}
-          handleClearPayment={handleClearPayment}
+          handleClearPayment={async () => {
+            if (password !== '123') {
+              toast({
+                title: "Error",
+                description: "Incorrect password",
+                variant: "destructive"
+              });
+              setPassword('');
+              return;
+            }
+  
+            try {
+              const customer = customers.find(c => c.id === selectedCustomer);
+              if (!customer) return;
+  
+              if (pendingBalance > 0) {
+                const { error: paymentError } = await supabase
+                  .from('payments')
+                  .insert({
+                    customer_name: customer.name,
+                    amount: pendingBalance,
+                    payment_method: 'Balance Clear',
+                    payment_date: format(new Date(), 'yyyy-MM-dd')
+                  });
+  
+                if (paymentError) throw paymentError;
+  
+                toast({
+                  title: "Success",
+                  description: `Outstanding balance of ${pendingBalance.toFixed(2)} cleared for ${customer.name}`,
+                  duration: 2000
+                });
+              } else {
+                toast({
+                  title: "Info",
+                  description: "No outstanding balance to clear",
+                  duration: 2000
+                });
+              }
+  
+              setClearPasswordDialog(false);
+              setPassword('');
+              loadPendingBalance();
+            } catch (error) {
+              toast({
+                title: "Error",
+                description: "Failed to clear balance",
+                variant: "destructive",
+                duration: 2000
+              });
+            }
+          }}
         />
       </Card>
       {selectedCustomer && (
-        <div className="mt-4 flex justify-center">
-          {isLoading ? (
-            <Card className="w-full max-w-2xl p-8 rounded-2xl shadow-sm border"> {/* mobile padding  */}
-              <p className="text-center text-gray-500">Loading monthly data...</p>
-            </Card>
-          ) : (
-            <div className="w-full">
-              <Tabs defaultValue={isMobile ? "calendar" : "summary"}
-                className="w-full">
-                <TabsList className="w-full flex bg-gray-100 border rounded-xl mb-3 sticky top-0 z-20">
-                  <TabsTrigger value="calendar" className="flex-1 text-xs sm:text-sm px-2">Details</TabsTrigger>
-                  <TabsTrigger value="summary" className="flex-1 text-xs sm:text-sm px-2">Summary</TabsTrigger>
-                </TabsList>
-                <TabsContent value="calendar" className="w-full px-1 sm:px-2">
-                  <div className="rounded-xl sm:rounded-2xl shadow-xs bg-white">
-                    <CustomerBillsCalendarGrid
-                      selectedDate={selectedDate}
-                      monthlyData={monthlyData}
-                      customers={customers}
-                      selectedCustomer={selectedCustomer}
-                      pendingBalance={pendingBalance}
-                    />
-                  </div>
-                </TabsContent>
-                <TabsContent value="summary" className="px-1 sm:px-2">
-                  {totalMonthlyAmount > 0 || pendingBalance > 0 ? (
-                    <CustomerBillsSummary
-                      totalMilk={totalMilk}
-                      totalMilkAmount={totalMilkAmount}
-                      totalGroceryAmount={totalGroceryAmount}
-                      totalMonthlyAmount={totalMonthlyAmount}
-                      pendingBalance={pendingBalance}
-                      grandTotal={grandTotal}
-                    />
-                  ) : (
-                    <div className="text-center text-gray-400 py-10">No records for this month</div>
-                  )}
-                </TabsContent>
-              </Tabs>
-            </div>
-          )}
-        </div>
+        <Card className="w-full max-w-xl bg-white shadow-lg rounded-2xl px-2 py-4 sm:px-4 mb-16 border border-gray-100">
+          <table className="min-w-full text-xs sm:text-sm">
+            <thead>
+              <tr className="bg-gray-50 text-gray-700">
+                <th className="rounded-l-lg p-2 font-semibold">Date</th>
+                <th className="p-2 font-semibold">Morning</th>
+                <th className="rounded-r-lg p-2 font-semibold">Grocery</th>
+              </tr>
+            </thead>
+            <tbody>
+              {buildTableRows()}
+            </tbody>
+            <tfoot>
+              <tr className="border-t bg-gray-50">
+                <td className="p-2 font-bold text-right">Total:</td>
+                <td className="p-2 font-bold text-blue-800">
+                  {totalMilk.toFixed(2)} L&nbsp;
+                  <span className="text-xs text-gray-400 font-normal">(₹{totalMilkAmount.toFixed(2)})</span>
+                </td>
+                <td className="p-2 font-bold text-green-800">₹{totalGroceryAmount.toFixed(2)}</td>
+              </tr>
+              <tr className="bg-purple-50">
+                <td className="p-2 font-bold text-right rounded-bl-lg">Monthly:</td>
+                <td className="p-2 font-bold text-purple-700" colSpan={2}>₹{totalMonthlyAmount.toFixed(2)}</td>
+              </tr>
+              {pendingBalance > 0 && (
+                <tr className="bg-orange-50">
+                  <td className="p-2 text-right font-semibold">Previous Balance:</td>
+                  <td className="p-2 font-semibold text-red-700" colSpan={2}>₹{pendingBalance.toFixed(2)}</td>
+                </tr>
+              )}
+              <tr className="bg-yellow-100">
+                <td className="p-2 font-bold text-right rounded-bl-2xl">Grand Total:</td>
+                <td className="p-2 font-bold text-orange-700" colSpan={2}>₹{grandTotal.toFixed(2)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </Card>
       )}
+
       {selectedCustomer && (
         <div className="fixed inset-x-0 bottom-0 z-50 bg-white/90 px-2 pb-[env(safe-area-inset-bottom)] pt-2 shadow-2xl border-t flex gap-2 sm:hidden">
           <Button
             size="lg"
             className="flex-1 rounded-xl shadow-md text-base"
-            onClick={generatePDF}
+            onClick={async () => {
+              if (!selectedCustomer) return;
+              const pdfBlob = await generatePDFBlob({
+                customer: customers.find(c => c.id === selectedCustomer),
+                selectedDate,
+                monthlyData,
+                pendingBalance,
+              });
+              if (!pdfBlob) {
+                toast({ title: "Error", description: "PDF generation failed", variant: "destructive" });
+                return;
+              }
+              saveAs(pdfBlob, `${customers.find(c => c.id === selectedCustomer)?.name.replace(/\s+/g, '_')}_${format(selectedDate, 'MMMM_yyyy')}.pdf`);
+            }}
             disabled={isLoading}
           >
             <Download className="w-5 h-5 mr-1" />
@@ -558,3 +606,5 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
     </div>
   );
 };
+
+export { CustomerBills };
