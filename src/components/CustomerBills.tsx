@@ -13,6 +13,8 @@ import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import jsPDF from 'jspdf';
 import { saveAs } from 'file-saver';
+import { generatePDFBlob, uploadPdfAndGetUrl } from "@/utils/pdfUtils";
+import { buildWhatsAppBillMessage } from "@/utils/whatsappMessage";
 
 interface Customer {
   id: string;
@@ -309,189 +311,53 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
     }
   };
 
-  const generatePDFBlob = async () => {
-    if (!selectedCustomer) return null;
-    try {
-      const customer = customers.find(c => c.id === selectedCustomer);
-      if (!customer) return null;
-      const monthName = format(selectedDate, 'MMMM yyyy');
-      let totalMilk = 0, totalGroceryAmount = 0, totalMilkAmount = 0;
-      Object.values(monthlyData).forEach(day => {
-        totalMilk += day.totalMilkQuantity;
-        totalGroceryAmount += day.totalGroceryAmount;
-        totalMilkAmount += day.totalMilkAmount;
-      });
-      const totalMonthlyAmount = totalMilkAmount + totalGroceryAmount;
-      const grandTotal = totalMonthlyAmount + pendingBalance;
-      const pdf = new jsPDF();
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      pdf.setFillColor(41,98,255); pdf.rect(0,0,pageWidth,35, 'F');
-      pdf.setTextColor(255,255,255); pdf.setFont("helvetica","bold");
-      pdf.setFontSize(18); pdf.text("NARMADA DAIRY", pageWidth/2,15,{align:"center"});
-      pdf.setFontSize(14); pdf.text("MONTHLY BILL", pageWidth/2,25,{align:"center"});
-      pdf.setTextColor(51,65,85);
-      pdf.setFontSize(12); pdf.text("CUSTOMER DETAILS",20,45);
-      pdf.setFont("helvetica","normal"); pdf.setFontSize(11);
-      pdf.text(`Name: ${customer.name}`,20,55);
-      pdf.text(`Address: ${customer.address || 'N/A'}`,20,62);
-      if (customer.phone_number) pdf.text(`Phone: ${customer.phone_number}`,20,69);
-      pdf.text(`Bill Period: ${monthName}`,20,76);
-      pdf.setDrawColor(200,200,200); pdf.setLineWidth(0.5);
-      pdf.line(20,82,pageWidth-20,82);
-      pdf.setFont("helvetica","bold"); pdf.setFontSize(12); pdf.text("DAILY BREAKDOWN",20,92);
-      pdf.setFillColor(248,250,252); pdf.rect(20,97,pageWidth-40,8, 'F');
-      pdf.setTextColor(51,65,85); pdf.setFontSize(10); pdf.text("Date",25,102);
-      pdf.text("Morning",55,102); pdf.text("Evening",85,102); pdf.text("Total Qty",115,102);
-      pdf.text("Rate",145,102); pdf.text("Amount",165,102); pdf.text("Grocery",185,102);
-      let y=112, daysInMonth = getDaysInMonth(selectedDate), rowCount=0;
-      for (let day=1; day<=daysInMonth; day++) {
-        const dateStr=format(new Date(selectedDate.getFullYear(),selectedDate.getMonth(),day),'yyyy-MM-dd'),
-        dayData=monthlyData[dateStr];
-        if(dayData?.hasDelivery){
-          if(y>260){pdf.addPage();y=20;rowCount=0;}
-          if(rowCount%2===0){pdf.setFillColor(250,250,250);pdf.rect(20,y-5,pageWidth-40,8, 'F');}
-          let morningQty=0, eveningQty=0, totalDayAmount=0, averageRate=0, groceryTotal=0, groceryItems=[];
-          dayData.entries.forEach(entry=>{
-            if(entry.time==="Morning")morningQty+=entry.milkQuantity;
-            else if(entry.time==="Evening")eveningQty+=entry.milkQuantity;
-            totalDayAmount+=entry.milkAmount; groceryTotal+=entry.grocery.total;
-            groceryItems.push(...entry.grocery.items);
-          });
-          const totalQty=morningQty+eveningQty;
-          if(totalQty>0){averageRate=totalDayAmount/totalQty;}
-          pdf.setFont("helvetica","normal"); pdf.setTextColor(51,65,85); pdf.setFontSize(9);
-          pdf.text(day.toString().padStart(2,'0'),25,y);
-          pdf.text(morningQty>0?`${morningQty.toFixed(1)}L`:"-",55,y);
-          pdf.text(eveningQty>0?`${eveningQty.toFixed(1)}L`:"-",85,y);
-          pdf.text(totalQty>0?`${totalQty.toFixed(1)}L`:"-",115,y);
-          pdf.text(totalQty>0?`${Math.ceil(averageRate)}`:"-",145,y);
-          pdf.text(totalDayAmount>0?`${totalDayAmount.toFixed(2)}`:"-",165,y);
-          if(groceryItems.length>0){
-            pdf.text(`${groceryTotal.toFixed(2)}`,185,y);
-            groceryItems.forEach((item,i)=>{
-              y+=4;if(y>260){pdf.addPage();y=20;rowCount=0;}
-              const itemText=`- ${item.name}: ${item.price.toFixed(2)}`;
-              pdf.setFontSize(7); pdf.text(itemText,185,y);
-              if(item.description){y+=3;if(y>260){pdf.addPage();y=20;rowCount=0;}
-                pdf.setFontSize(6); pdf.setTextColor(120,120,120);
-                pdf.text(`  (${item.description})`,185,y); pdf.setTextColor(51,65,85);}
-            }); pdf.setFontSize(9);
-          } else {pdf.text("-",185,y);}
-          y+=8;rowCount++;
-        }
-      }
-      if(y>220){pdf.addPage();y=20;} else {y+=15;}
-      pdf.setFillColor(41,98,255); pdf.rect(20,y-5,pageWidth-40,8, 'F');
-      pdf.setTextColor(255,255,255); pdf.setFont("helvetica","bold"); pdf.setFontSize(12); pdf.text("BILL SUMMARY",25,y);
-      y+=15;
-      pdf.setTextColor(51,65,85); pdf.setFont("helvetica","normal"); pdf.setFontSize(11);
-      const summaryItems=[
-        [`Total Milk Quantity:`,`${totalMilk.toFixed(1)} Liters`],
-        [`Milk Amount:`,`${totalMilkAmount.toFixed(2)}`],
-        [`Grocery Amount:`,`${totalGroceryAmount.toFixed(2)}`],
-        [`Monthly Total:`,`${totalMonthlyAmount.toFixed(2)}`]
-      ];
-      if(pendingBalance>0){
-        summaryItems.push([`Previous Balance:`,`${pendingBalance.toFixed(2)}`]);
-      }
-      summaryItems.forEach(([label,value])=>{
-        pdf.text(label,25,y); pdf.text(value,120,y); y+=8;
-      });
-      y+=5;
-      pdf.setFillColor(255,248,220); pdf.rect(20,y-8,pageWidth-40,15,'F');
-      pdf.setDrawColor(41,98,255); pdf.setLineWidth(1); pdf.rect(20,y-8,pageWidth-40,15);
-      pdf.setFont("helvetica","bold"); pdf.setFontSize(14);
-      pdf.setTextColor(41,98,255); pdf.text("TOTAL AMOUNT:",25,y); pdf.text(`${Math.round(grandTotal)}`,120,y);
-      y+=20; pdf.setDrawColor(200,200,200); pdf.line(20,y,pageWidth-20,y); y+=10;
-      pdf.setTextColor(100,100,100); pdf.setFont("helvetica","normal"); pdf.setFontSize(10);
-      pdf.text("Thank you for your business!",pageWidth/2,y,{align:"center"}); y+=8;
-      pdf.setFont("helvetica","bold"); pdf.text("NARMADA DAIRY",pageWidth/2,y,{align:"center"});
-      return pdf.output('blob');
-    } catch (error) {
-      return null;
-    }
-  };
-
-  const uploadPdfAndGetUrl = async (customer: Customer, monthName: string, pdfBlob: Blob) => {
-    try {
-      const fileName = `${customer.name.replace(/\s+/g,'_')}_${monthName.replace(/\s+/g,'_')}.pdf`;
-      const { data, error } = await supabase
-        .storage
-        .from(BILLS_BUCKET)
-        .upload(fileName, pdfBlob, { cacheControl: '3600', upsert: true, contentType: 'application/pdf' });
-      if (error) throw error;
-
-      const { data: publicUrlData } = supabase
-        .storage
-        .from(BILLS_BUCKET)
-        .getPublicUrl(fileName);
-
-      if (!publicUrlData?.publicUrl) {
-        throw new Error('Failed to get public URL');
-      }
-      return publicUrlData.publicUrl;
-    } catch (err) {
-      console.error('PDF upload error:', err);
-      return null;
-    }
-  };
-
   const sendWhatsAppBill = async (customer: Customer) => {
     if (!customer.phone_number) {
       toast({
         title: "Error",
         description: "No phone number found for this customer",
         variant: "destructive",
-        duration: 2000
+        duration: 2000,
       });
       return;
     }
     setIsUploadingPDF(true);
     try {
-      const pdfBlob = await generatePDFBlob();
-      if (!pdfBlob) throw new Error('Could not generate PDF');
-
-      const monthName = format(selectedDate, 'MMMM yyyy');
-      const publicUrl = await uploadPdfAndGetUrl(customer, monthName, pdfBlob);
-      if (!publicUrl) throw new Error("Could not upload PDF for WhatsApp message.");
-
-      let totalMilk = 0, totalGroceryAmount = 0, totalMilkAmount = 0;
-      Object.values(monthlyData).forEach(day => {
-        totalMilk += day.totalMilkQuantity;
-        totalGroceryAmount += day.totalGroceryAmount;
-        totalMilkAmount += day.totalMilkAmount;
+      const pdfBlob = await generatePDFBlob({
+        customer,
+        selectedDate,
+        monthlyData,
+        pendingBalance,
       });
-      const totalMonthlyAmount = totalMilkAmount + totalGroceryAmount;
-      const grandTotal = totalMonthlyAmount + pendingBalance;
-      const message = `🥛 *NARMADA DAIRY - Monthly Bill*
+      if (!pdfBlob) throw new Error("Could not generate PDF");
 
-📋 *Customer*: ${customer.name}
-📅 *Period*: ${monthName}
+      // Get the public PDF link (upload if needed)
+      const pdfUrl = await uploadPdfAndGetUrl({
+        customer,
+        selectedDate,
+        pdfBlob,
+      });
+      if (!pdfUrl) throw new Error("Could not upload PDF for WhatsApp message.");
 
-📊 *Bill Summary:*
-• Total Milk: ${totalMilk.toFixed(1)} Liters
-• Milk Amount: ${totalMilkAmount.toFixed(2)}
-• Grocery Amount: ${totalGroceryAmount.toFixed(2)}
-• Monthly Total: ${totalMonthlyAmount.toFixed(2)}
-${pendingBalance > 0 ? `• Previous Balance: ${pendingBalance.toFixed(2)}` : ''}
+      // Build WhatsApp message body with PDF download link included (no payment instructions)
+      const message = buildWhatsAppBillMessage({
+        customer,
+        selectedDate,
+        monthlyData,
+        pendingBalance,
+        pdfUrl,
+      });
 
-💰 *TOTAL AMOUNT: ${Math.round(grandTotal)}*
-
-📝 *Download PDF Bill*: ${publicUrl}
-
-Thank you for your business! 🙏
-*NARMADA DAIRY*`;
-
-      const phoneNumber = customer.phone_number.replace(/\D/g, '');
+      const phoneNumber = customer.phone_number.replace(/\D/g, "");
       const encodedMessage = encodeURIComponent(message);
       const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodedMessage}`;
 
-      window.open(whatsappUrl, '_blank');
+      window.open(whatsappUrl, "_blank");
 
       toast({
         title: "WhatsApp Ready",
-        description: "WhatsApp opened with bill and PDF link",
-        duration: 3000
+        description: "WhatsApp opened with bill and PDF link. Please attach the PDF if needed in WhatsApp.",
+        duration: 3000,
       });
     } catch (error) {
       console.error(error);
@@ -499,7 +365,7 @@ Thank you for your business! 🙏
         title: "Error",
         description: "Failed to send WhatsApp bill. Try again.",
         variant: "destructive",
-        duration: 3000
+        duration: 3000,
       });
     } finally {
       setIsUploadingPDF(false);
@@ -509,7 +375,12 @@ Thank you for your business! 🙏
   const generatePDF = async () => {
     if (!selectedCustomer) return;
     try {
-      const pdfBlob = await generatePDFBlob();
+      const pdfBlob = await generatePDFBlob({
+        customer: customers.find(c => c.id === selectedCustomer),
+        selectedDate,
+        monthlyData,
+        pendingBalance,
+      });
       if (!pdfBlob) throw new Error('Could not generate PDF');
       saveAs(pdfBlob, `${customers.find(c => c.id === selectedCustomer)?.name.replace(/\s+/g, '_')}_${format(selectedDate, 'MMMM_yyyy')}.pdf`);
       toast({
