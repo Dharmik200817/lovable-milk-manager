@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -149,6 +148,29 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
       setIsLoading(false);
     }
   };
+
+  const [debugBalances, setDebugBalances] = useState<
+    { customer_id: string; customer_name: string; pending_amount: number }[]
+  >([]);
+  const [isDebugLoading, setIsDebugLoading] = useState(false);
+
+  useEffect(() => {
+    const loadDebugBalances = async () => {
+      setIsDebugLoading(true);
+      const { data, error } = await supabase
+        .from("customer_balances_view")
+        .select("*")
+        .order("pending_amount", { ascending: false });
+      if (error) {
+        setDebugBalances([]);
+        console.error("Debug: failed to load customer_balances_view", error);
+      } else {
+        setDebugBalances(data || []);
+      }
+      setIsDebugLoading(false);
+    };
+    loadDebugBalances();
+  }, []);
 
   return (
     <div className="space-y-6 pb-20 sm:pb-6">
@@ -341,6 +363,59 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
                       >
                         Delivery
                       </Button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+      {/* ----- Pending Balances Debug Table ----- */}
+      <Card className="mt-6 overflow-auto border-red-400 border-2">
+        <div className="p-3 border-b bg-red-50">
+          <h3 className="text-base font-semibold text-red-700">
+            Pending Balances Debug Table
+          </h3>
+          <div className="text-xs text-gray-500">
+            (Shows all rows from customer_balances_view)
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full">
+            <thead className="bg-red-100">
+              <tr>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-800">
+                  Customer ID
+                </th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-800">
+                  Customer Name
+                </th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-gray-800">
+                  Pending Amount
+                </th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-red-200">
+              {isDebugLoading ? (
+                <tr>
+                  <td colSpan={3} className="text-center px-4 py-6 text-gray-500">
+                    Loading balances...
+                  </td>
+                </tr>
+              ) : debugBalances.length === 0 ? (
+                <tr>
+                  <td colSpan={3} className="text-center px-4 py-6 text-gray-500">
+                    No rows found in customer_balances_view.
+                  </td>
+                </tr>
+              ) : (
+                debugBalances.map((row) => (
+                  <tr key={row.customer_id}>
+                    <td className="px-4 py-2 text-xs">{row.customer_id}</td>
+                    <td className="px-4 py-2 text-xs">{row.customer_name}</td>
+                    <td className="px-4 py-2 text-xs font-bold text-red-700">
+                      ₹{Number(row.pending_amount).toFixed(2)}
                     </td>
                   </tr>
                 ))
