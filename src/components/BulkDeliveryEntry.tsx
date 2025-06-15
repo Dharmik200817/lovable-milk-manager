@@ -10,7 +10,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from '@/hooks/use-toast';
 import { cn } from "@/lib/utils"
 import { format } from 'date-fns';
-import { CalendarIcon, ArrowRight, SkipForward } from 'lucide-react';
+import { CalendarIcon, ArrowRight, SkipForward, Plus } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
