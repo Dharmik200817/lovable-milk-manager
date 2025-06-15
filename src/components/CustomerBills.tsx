@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -50,7 +49,11 @@ interface CustomerBillsProps {
 const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) => {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<string>(preSelectedCustomerId || '');
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  // Initialize selectedDate with a stable date to prevent it from changing
+  const [selectedDate, setSelectedDate] = useState<Date>(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1); // First day of current month
+  });
   const [monthlyData, setMonthlyData] = useState<MonthlyData>({});
   const [isLoading, setIsLoading] = useState(false);
   const [clearPasswordDialog, setClearPasswordDialog] = useState(false);
@@ -113,18 +116,27 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
   };
 
   const loadMonthlyData = async () => {
-    if (!selectedCustomer) return;
+    if (!selectedCustomer) {
+      console.log('No customer selected, clearing monthly data');
+      setMonthlyData({});
+      return;
+    }
 
     try {
       setIsLoading(true);
       
-      // Fix date range calculation to match the selected month properly
+      // Use the selectedDate to get the correct month range
       const year = selectedDate.getFullYear();
       const month = selectedDate.getMonth();
       const startDate = format(new Date(year, month, 1), 'yyyy-MM-dd');
       const endDate = format(new Date(year, month + 1, 0), 'yyyy-MM-dd'); // Last day of the month
 
-      console.log('Loading data for date range:', { startDate, endDate, selectedCustomer });
+      console.log('Loading data for:', { 
+        selectedCustomer, 
+        selectedDateFormatted: format(selectedDate, 'MMMM yyyy'),
+        startDate, 
+        endDate 
+      });
 
       const { data: deliveryData, error: deliveryError } = await supabase
         .from('delivery_records')
@@ -242,10 +254,19 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
     }
   }, [preSelectedCustomerId, customers]);
 
+  // Separate useEffect for when customer changes (don't reload pending balance and monthly data on date changes)
   useEffect(() => {
     if (selectedCustomer) {
-      loadMonthlyData();
+      console.log('Customer changed, reloading data for:', selectedCustomer);
       loadPendingBalance();
+    }
+  }, [selectedCustomer, customers]);
+
+  // Separate useEffect for when date changes or customer changes
+  useEffect(() => {
+    if (selectedCustomer) {
+      console.log('Date or customer changed, reloading monthly data');
+      loadMonthlyData();
     }
   }, [selectedCustomer, selectedDate]);
 
@@ -414,7 +435,7 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
       const getDataForDay = (day: number | undefined) => {
         if (!day) return { morning: '', evening: '', grocery: '' };
         
-        // Fix: Use the selected date's year and month, then set the day
+        // Use the selected date's year and month, then set the day
         const year = selectedDate.getFullYear();
         const month = selectedDate.getMonth();
         const dateObj = new Date(year, month, day);
