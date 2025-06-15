@@ -83,6 +83,16 @@ export const PendingPayments = ({ onViewCustomer }: PendingPaymentsProps) => {
   const handleClearPayment = async () => {
     if (!clearingCustomerId) return;
     
+    if (!password) {
+      toast({
+        title: "Error",
+        description: "Please enter the password",
+        variant: "destructive",
+        duration: 2000
+      });
+      return;
+    }
+    
     if (password !== '123') {
       toast({
         title: "Error",
