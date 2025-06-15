@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -13,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import jsPDF from 'jspdf';
+import { saveAs } from 'file-saver';
 
 interface Customer {
   id: string;
@@ -65,6 +65,8 @@ interface CustomerBillsProps {
   onViewRecords?: (customerId: string) => void;
 }
 
+const BILLS_BUCKET = "bills";
+
 export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: CustomerBillsProps) => {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<string>(preSelectedCustomerId || '');
@@ -74,6 +76,7 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
   const [clearPasswordDialog, setClearPasswordDialog] = useState(false);
   const [password, setPassword] = useState('');
   const [pendingBalance, setPendingBalance] = useState(0);
+  const [isUploadingPDF, setIsUploadingPDF] = useState(false);
 
   const loadCustomers = async () => {
     try {
@@ -101,10 +104,8 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
       const customer = customers.find(c => c.id === selectedCustomer);
       if (!customer) return;
 
-      // Calculate the start of the selected month
       const currentMonthStart = format(startOfMonth(selectedDate), 'yyyy-MM-dd');
       
-      // Get all deliveries BEFORE the current month
       const { data: previousDeliveryData, error: deliveryError } = await supabase
         .from('delivery_records')
         .select('total_amount')
@@ -113,7 +114,6 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
       
       if (deliveryError) throw deliveryError;
       
-      // Get all payments BEFORE the current month
       const { data: previousPaymentData, error: paymentError } = await supabase
         .from('payments')
         .select('amount')
@@ -125,7 +125,6 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
       const totalPreviousDelivery = previousDeliveryData?.reduce((sum, record) => sum + Number(record.total_amount), 0) || 0;
       const totalPreviousPayments = previousPaymentData?.reduce((sum, payment) => sum + Number(payment.amount), 0) || 0;
       
-      // Previous balance is only from transactions before current month
       const actualPreviousBalance = Math.max(0, totalPreviousDelivery - totalPreviousPayments);
       setPendingBalance(actualPreviousBalance);
     } catch (error) {
@@ -141,7 +140,6 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
       const startDate = format(startOfMonth(selectedDate), 'yyyy-MM-dd');
       const endDate = format(addDays(startOfMonth(selectedDate), getDaysInMonth(selectedDate) - 1), 'yyyy-MM-dd');
 
-      // Get all delivery records for this customer in the selected month
       const { data: deliveryData, error: deliveryError } = await supabase
         .from('delivery_records')
         .select(`
@@ -159,7 +157,6 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
 
       if (deliveryError) throw deliveryError;
 
-      // Get all grocery items for these delivery records
       const { data: groceryData, error: groceryError } = await supabase
         .from('grocery_items')
         .select(`
@@ -174,10 +171,8 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
 
       if (groceryError) throw groceryError;
 
-      // Process data into monthly format with multiple entries per day
       const monthData: MonthlyData = {};
 
-      // First process all delivery records
       deliveryData?.forEach(record => {
         const date = record.delivery_date;
         const entryTime = record.notes?.toLowerCase().includes('evening') ? 'Evening' : 'Morning';
@@ -194,7 +189,6 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
           };
         }
 
-        // Add this entry to the day's entries
         monthData[date].entries.push({
           id: record.id,
           time: entryTime,
@@ -207,18 +201,15 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
           }
         });
 
-        // Update daily totals
         monthData[date].totalMilkQuantity += milkQuantity;
         monthData[date].totalMilkAmount += milkAmount;
       });
 
-      // Now add grocery items to their respective entries
       groceryData?.forEach(item => {
         const deliveryId = (item as any).delivery_records.id;
         const deliveryDate = (item as any).delivery_records.delivery_date;
         
         if (monthData[deliveryDate]) {
-          // Find the correct entry for this grocery item
           const entry = monthData[deliveryDate].entries.find(e => e.id === deliveryId);
           
           if (entry) {
@@ -229,7 +220,6 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
             });
             entry.grocery.total += item.price;
             
-            // Update daily totals
             monthData[deliveryDate].totalGroceryAmount += item.price;
           }
         }
@@ -280,7 +270,6 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
       const customer = customers.find(c => c.id === selectedCustomer);
       if (!customer) return;
 
-      // Record a payment equal to the pending balance to clear it
       if (pendingBalance > 0) {
         const { error: paymentError } = await supabase
           .from('payments')
@@ -293,7 +282,6 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
 
         if (paymentError) throw paymentError;
 
-        // Show success toast that auto-dismisses after 2 seconds
         toast({
           title: "Success",
           description: `Outstanding balance of ${pendingBalance.toFixed(2)} cleared for ${customer.name}`,
@@ -321,7 +309,134 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
     }
   };
 
-  const sendWhatsAppBill = (customer: Customer) => {
+  const generatePDFBlob = async () => {
+    if (!selectedCustomer) return null;
+    try {
+      const customer = customers.find(c => c.id === selectedCustomer);
+      if (!customer) return null;
+      const monthName = format(selectedDate, 'MMMM yyyy');
+      let totalMilk = 0, totalGroceryAmount = 0, totalMilkAmount = 0;
+      Object.values(monthlyData).forEach(day => {
+        totalMilk += day.totalMilkQuantity;
+        totalGroceryAmount += day.totalGroceryAmount;
+        totalMilkAmount += day.totalMilkAmount;
+      });
+      const totalMonthlyAmount = totalMilkAmount + totalGroceryAmount;
+      const grandTotal = totalMonthlyAmount + pendingBalance;
+      const pdf = new jsPDF();
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      pdf.setFillColor(41,98,255); pdf.rect(0,0,pageWidth,35, 'F');
+      pdf.setTextColor(255,255,255); pdf.setFont("helvetica","bold");
+      pdf.setFontSize(18); pdf.text("NARMADA DAIRY", pageWidth/2,15,{align:"center"});
+      pdf.setFontSize(14); pdf.text("MONTHLY BILL", pageWidth/2,25,{align:"center"});
+      pdf.setTextColor(51,65,85);
+      pdf.setFontSize(12); pdf.text("CUSTOMER DETAILS",20,45);
+      pdf.setFont("helvetica","normal"); pdf.setFontSize(11);
+      pdf.text(`Name: ${customer.name}`,20,55);
+      pdf.text(`Address: ${customer.address || 'N/A'}`,20,62);
+      if (customer.phone_number) pdf.text(`Phone: ${customer.phone_number}`,20,69);
+      pdf.text(`Bill Period: ${monthName}`,20,76);
+      pdf.setDrawColor(200,200,200); pdf.setLineWidth(0.5);
+      pdf.line(20,82,pageWidth-20,82);
+      pdf.setFont("helvetica","bold"); pdf.setFontSize(12); pdf.text("DAILY BREAKDOWN",20,92);
+      pdf.setFillColor(248,250,252); pdf.rect(20,97,pageWidth-40,8, 'F');
+      pdf.setTextColor(51,65,85); pdf.setFontSize(10); pdf.text("Date",25,102);
+      pdf.text("Morning",55,102); pdf.text("Evening",85,102); pdf.text("Total Qty",115,102);
+      pdf.text("Rate",145,102); pdf.text("Amount",165,102); pdf.text("Grocery",185,102);
+      let y=112, daysInMonth = getDaysInMonth(selectedDate), rowCount=0;
+      for (let day=1; day<=daysInMonth; day++) {
+        const dateStr=format(new Date(selectedDate.getFullYear(),selectedDate.getMonth(),day),'yyyy-MM-dd'),
+        dayData=monthlyData[dateStr];
+        if(dayData?.hasDelivery){
+          if(y>260){pdf.addPage();y=20;rowCount=0;}
+          if(rowCount%2===0){pdf.setFillColor(250,250,250);pdf.rect(20,y-5,pageWidth-40,8, 'F');}
+          let morningQty=0, eveningQty=0, totalDayAmount=0, averageRate=0, groceryTotal=0, groceryItems=[];
+          dayData.entries.forEach(entry=>{
+            if(entry.time==="Morning")morningQty+=entry.milkQuantity;
+            else if(entry.time==="Evening")eveningQty+=entry.milkQuantity;
+            totalDayAmount+=entry.milkAmount; groceryTotal+=entry.grocery.total;
+            groceryItems.push(...entry.grocery.items);
+          });
+          const totalQty=morningQty+eveningQty;
+          if(totalQty>0){averageRate=totalDayAmount/totalQty;}
+          pdf.setFont("helvetica","normal"); pdf.setTextColor(51,65,85); pdf.setFontSize(9);
+          pdf.text(day.toString().padStart(2,'0'),25,y);
+          pdf.text(morningQty>0?`${morningQty.toFixed(1)}L`:"-",55,y);
+          pdf.text(eveningQty>0?`${eveningQty.toFixed(1)}L`:"-",85,y);
+          pdf.text(totalQty>0?`${totalQty.toFixed(1)}L`:"-",115,y);
+          pdf.text(totalQty>0?`${Math.ceil(averageRate)}`:"-",145,y);
+          pdf.text(totalDayAmount>0?`${totalDayAmount.toFixed(2)}`:"-",165,y);
+          if(groceryItems.length>0){
+            pdf.text(`${groceryTotal.toFixed(2)}`,185,y);
+            groceryItems.forEach((item,i)=>{
+              y+=4;if(y>260){pdf.addPage();y=20;rowCount=0;}
+              const itemText=`- ${item.name}: ${item.price.toFixed(2)}`;
+              pdf.setFontSize(7); pdf.text(itemText,185,y);
+              if(item.description){y+=3;if(y>260){pdf.addPage();y=20;rowCount=0;}
+                pdf.setFontSize(6); pdf.setTextColor(120,120,120);
+                pdf.text(`  (${item.description})`,185,y); pdf.setTextColor(51,65,85);}
+            }); pdf.setFontSize(9);
+          } else {pdf.text("-",185,y);}
+          y+=8;rowCount++;
+        }
+      }
+      if(y>220){pdf.addPage();y=20;} else {y+=15;}
+      pdf.setFillColor(41,98,255); pdf.rect(20,y-5,pageWidth-40,8, 'F');
+      pdf.setTextColor(255,255,255); pdf.setFont("helvetica","bold"); pdf.setFontSize(12); pdf.text("BILL SUMMARY",25,y);
+      y+=15;
+      pdf.setTextColor(51,65,85); pdf.setFont("helvetica","normal"); pdf.setFontSize(11);
+      const summaryItems=[
+        [`Total Milk Quantity:`,`${totalMilk.toFixed(1)} Liters`],
+        [`Milk Amount:`,`${totalMilkAmount.toFixed(2)}`],
+        [`Grocery Amount:`,`${totalGroceryAmount.toFixed(2)}`],
+        [`Monthly Total:`,`${totalMonthlyAmount.toFixed(2)}`]
+      ];
+      if(pendingBalance>0){
+        summaryItems.push([`Previous Balance:`,`${pendingBalance.toFixed(2)}`]);
+      }
+      summaryItems.forEach(([label,value])=>{
+        pdf.text(label,25,y); pdf.text(value,120,y); y+=8;
+      });
+      y+=5;
+      pdf.setFillColor(255,248,220); pdf.rect(20,y-8,pageWidth-40,15,'F');
+      pdf.setDrawColor(41,98,255); pdf.setLineWidth(1); pdf.rect(20,y-8,pageWidth-40,15);
+      pdf.setFont("helvetica","bold"); pdf.setFontSize(14);
+      pdf.setTextColor(41,98,255); pdf.text("TOTAL AMOUNT:",25,y); pdf.text(`${Math.round(grandTotal)}`,120,y);
+      y+=20; pdf.setDrawColor(200,200,200); pdf.line(20,y,pageWidth-20,y); y+=10;
+      pdf.setTextColor(100,100,100); pdf.setFont("helvetica","normal"); pdf.setFontSize(10);
+      pdf.text("Thank you for your business!",pageWidth/2,y,{align:"center"}); y+=8;
+      pdf.setFont("helvetica","bold"); pdf.text("NARMADA DAIRY",pageWidth/2,y,{align:"center"});
+      return pdf.output('blob');
+    } catch (error) {
+      return null;
+    }
+  };
+
+  const uploadPdfAndGetUrl = async (customer: Customer, monthName: string, pdfBlob: Blob) => {
+    try {
+      const fileName = `${customer.name.replace(/\s+/g,'_')}_${monthName.replace(/\s+/g,'_')}.pdf`;
+      const { data, error } = await supabase
+        .storage
+        .from(BILLS_BUCKET)
+        .upload(fileName, pdfBlob, { cacheControl: '3600', upsert: true, contentType: 'application/pdf' });
+      if (error) throw error;
+
+      const { data: publicUrlData } = supabase
+        .storage
+        .from(BILLS_BUCKET)
+        .getPublicUrl(fileName);
+
+      if (!publicUrlData?.publicUrl) {
+        throw new Error('Failed to get public URL');
+      }
+      return publicUrlData.publicUrl;
+    } catch (err) {
+      console.error('PDF upload error:', err);
+      return null;
+    }
+  };
+
+  const sendWhatsAppBill = async (customer: Customer) => {
     if (!customer.phone_number) {
       toast({
         title: "Error",
@@ -331,27 +446,27 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
       });
       return;
     }
+    setIsUploadingPDF(true);
+    try {
+      const pdfBlob = await generatePDFBlob();
+      if (!pdfBlob) throw new Error('Could not generate PDF');
 
-    // Calculate totals for the month
-    let totalMilk = 0;
-    let totalGroceryAmount = 0;
-    let totalMilkAmount = 0;
-    
-    Object.values(monthlyData).forEach(day => {
-      totalMilk += day.totalMilkQuantity;
-      totalGroceryAmount += day.totalGroceryAmount;
-      totalMilkAmount += day.totalMilkAmount;
-    });
-    
-    const totalMonthlyAmount = totalMilkAmount + totalGroceryAmount;
-    const grandTotal = totalMonthlyAmount + pendingBalance;
-    const monthName = format(selectedDate, 'MMMM yyyy');
+      const monthName = format(selectedDate, 'MMMM yyyy');
+      const publicUrl = await uploadPdfAndGetUrl(customer, monthName, pdfBlob);
+      if (!publicUrl) throw new Error("Could not upload PDF for WhatsApp message.");
 
-    // Create WhatsApp message
-    const message = `🥛 *NARMADA DAIRY - Monthly Bill*
+      let totalMilk = 0, totalGroceryAmount = 0, totalMilkAmount = 0;
+      Object.values(monthlyData).forEach(day => {
+        totalMilk += day.totalMilkQuantity;
+        totalGroceryAmount += day.totalGroceryAmount;
+        totalMilkAmount += day.totalMilkAmount;
+      });
+      const totalMonthlyAmount = totalMilkAmount + totalGroceryAmount;
+      const grandTotal = totalMonthlyAmount + pendingBalance;
+      const message = `🥛 *NARMADA DAIRY - Monthly Bill*
 
-📋 *Customer:* ${customer.name}
-📅 *Period:* ${monthName}
+📋 *Customer*: ${customer.name}
+📅 *Period*: ${monthName}
 
 📊 *Bill Summary:*
 • Total Milk: ${totalMilk.toFixed(1)} Liters
@@ -362,284 +477,41 @@ ${pendingBalance > 0 ? `• Previous Balance: ${pendingBalance.toFixed(2)}` : ''
 
 💰 *TOTAL AMOUNT: ${Math.round(grandTotal)}*
 
-📱 *Payment Instructions:*
-If payment is done, the screenshot should be sent to Rashikbhai, not on this number.
+📝 *Download PDF Bill*: ${publicUrl}
 
 Thank you for your business! 🙏
 *NARMADA DAIRY*`;
 
-    // Create WhatsApp URL
-    const phoneNumber = customer.phone_number.replace(/\D/g, ''); // Remove all non-digits
-    const encodedMessage = encodeURIComponent(message);
-    const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodedMessage}`;
+      const phoneNumber = customer.phone_number.replace(/\D/g, '');
+      const encodedMessage = encodeURIComponent(message);
+      const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodedMessage}`;
 
-    // Open WhatsApp
-    window.open(whatsappUrl, '_blank');
+      window.open(whatsappUrl, '_blank');
 
-    toast({
-      title: "Success",
-      description: "WhatsApp opened with bill message",
-      duration: 2000
-    });
+      toast({
+        title: "WhatsApp Ready",
+        description: "WhatsApp opened with bill and PDF link",
+        duration: 3000
+      });
+    } catch (error) {
+      console.error(error);
+      toast({
+        title: "Error",
+        description: "Failed to send WhatsApp bill. Try again.",
+        variant: "destructive",
+        duration: 3000
+      });
+    } finally {
+      setIsUploadingPDF(false);
+    }
   };
 
   const generatePDF = async () => {
     if (!selectedCustomer) return;
-
     try {
-      const customer = customers.find(c => c.id === selectedCustomer);
-      if (!customer) return;
-      
-      const monthName = format(selectedDate, 'MMMM yyyy');
-      
-      // Calculate totals for the month
-      let totalMilk = 0;
-      let totalGroceryAmount = 0;
-      let totalMilkAmount = 0;
-      
-      Object.values(monthlyData).forEach(day => {
-        totalMilk += day.totalMilkQuantity;
-        totalGroceryAmount += day.totalGroceryAmount;
-        totalMilkAmount += day.totalMilkAmount;
-      });
-      
-      const totalMonthlyAmount = totalMilkAmount + totalGroceryAmount;
-      const grandTotal = totalMonthlyAmount + pendingBalance;
-      
-      // Create PDF document
-      const pdf = new jsPDF();
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      
-      // Set colors - converted RGB arrays to individual values
-      const primaryColorR = 41, primaryColorG = 98, primaryColorB = 255; // Blue
-      const secondaryColorR = 248, secondaryColorG = 250, secondaryColorB = 252; // Light gray
-      const textColorR = 51, textColorG = 65, textColorB = 85; // Dark gray
-      
-      // Header section with background
-      pdf.setFillColor(primaryColorR, primaryColorG, primaryColorB);
-      pdf.rect(0, 0, pageWidth, 35, 'F');
-      
-      pdf.setTextColor(255, 255, 255);
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(18);
-      pdf.text("NARMADA DAIRY", pageWidth / 2, 15, { align: "center" });
-      pdf.setFontSize(14);
-      pdf.text("MONTHLY BILL", pageWidth / 2, 25, { align: "center" });
-      
-      // Customer info section
-      pdf.setTextColor(textColorR, textColorG, textColorB);
-      pdf.setFontSize(12);
-      pdf.setFont("helvetica", "bold");
-      pdf.text("CUSTOMER DETAILS", 20, 45);
-      
-      pdf.setFont("helvetica", "normal");
-      pdf.setFontSize(11);
-      pdf.text(`Name: ${customer.name}`, 20, 55);
-      pdf.text(`Address: ${customer.address || 'N/A'}`, 20, 62);
-      if (customer.phone_number) {
-        pdf.text(`Phone: ${customer.phone_number}`, 20, 69);
-      }
-      pdf.text(`Bill Period: ${monthName}`, 20, 76);
-      
-      // Add a separator line
-      pdf.setDrawColor(200, 200, 200);
-      pdf.setLineWidth(0.5);
-      pdf.line(20, 82, pageWidth - 20, 82);
-      
-      // Daily breakdown section
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(12);
-      pdf.text("DAILY BREAKDOWN", 20, 92);
-      
-      // Table headers with background
-      pdf.setFillColor(secondaryColorR, secondaryColorG, secondaryColorB);
-      pdf.rect(20, 97, pageWidth - 40, 8, 'F');
-      
-      pdf.setTextColor(textColorR, textColorG, textColorB);
-      pdf.setFontSize(10);
-      pdf.setFont("helvetica", "bold");
-      pdf.text("Date", 25, 102);
-      pdf.text("Morning", 55, 102);
-      pdf.text("Evening", 85, 102);
-      pdf.text("Total Qty", 115, 102);
-      pdf.text("Rate", 145, 102);
-      pdf.text("Amount", 165, 102);
-      pdf.text("Grocery", 185, 102);
-      
-      // Table content
-      let y = 112;
-      const daysInMonth = getDaysInMonth(selectedDate);
-      let rowCount = 0;
-      
-      for (let day = 1; day <= daysInMonth; day++) {
-        const dateStr = format(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day), 'yyyy-MM-dd');
-        const dayData = monthlyData[dateStr];
-        
-        if (dayData?.hasDelivery) {
-          // Check if we need a new page
-          if (y > 260) {
-            pdf.addPage();
-            y = 20;
-            rowCount = 0;
-          }
-          
-          // Alternate row background
-          if (rowCount % 2 === 0) {
-            pdf.setFillColor(250, 250, 250);
-            pdf.rect(20, y - 5, pageWidth - 40, 8, 'F');
-          }
-          
-          // Calculate morning and evening totals
-          let morningQty = 0;
-          let eveningQty = 0;
-          let totalDayAmount = 0;
-          let averageRate = 0;
-          let groceryTotal = 0;
-          let groceryItems: Array<{name: string, price: number, description?: string}> = [];
-          
-          dayData.entries.forEach(entry => {
-            if (entry.time === "Morning") {
-              morningQty += entry.milkQuantity;
-            } else if (entry.time === "Evening") {
-              eveningQty += entry.milkQuantity;
-            }
-            totalDayAmount += entry.milkAmount;
-            groceryTotal += entry.grocery.total;
-            groceryItems.push(...entry.grocery.items);
-          });
-          
-          const totalQty = morningQty + eveningQty;
-          if (totalQty > 0) {
-            averageRate = totalDayAmount / totalQty;
-          }
-          
-          // Print the day's summary
-          pdf.setFont("helvetica", "normal");
-          pdf.setTextColor(textColorR, textColorG, textColorB);
-          pdf.setFontSize(9);
-          
-          pdf.text(day.toString().padStart(2, '0'), 25, y);
-          pdf.text(morningQty > 0 ? `${morningQty.toFixed(1)}L` : '-', 55, y);
-          pdf.text(eveningQty > 0 ? `${eveningQty.toFixed(1)}L` : '-', 85, y);
-          pdf.text(totalQty > 0 ? `${totalQty.toFixed(1)}L` : '-', 115, y);
-          pdf.text(totalQty > 0 ? `${Math.ceil(averageRate)}` : '-', 145, y);
-          pdf.text(totalDayAmount > 0 ? `${totalDayAmount.toFixed(2)}` : '-', 165, y);
-          
-          // Grocery items
-          if (groceryItems.length > 0) {
-            pdf.text(`${groceryTotal.toFixed(2)}`, 185, y);
-            
-            // List grocery items with descriptions on next lines
-            groceryItems.forEach((item, i) => {
-              y += 4;
-              // Check if we need a new page
-              if (y > 260) {
-                pdf.addPage();
-                y = 20;
-                rowCount = 0;
-              }
-              
-              const itemText = `- ${item.name}: ${item.price.toFixed(2)}`;
-              pdf.setFontSize(7);
-              pdf.text(itemText, 185, y);
-              
-              // Add description if available
-              if (item.description) {
-                y += 3;
-                // Check if we need a new page
-                if (y > 260) {
-                  pdf.addPage();
-                  y = 20;
-                  rowCount = 0;
-                }
-                pdf.setFontSize(6);
-                pdf.setTextColor(120, 120, 120);
-                pdf.text(`  (${item.description})`, 185, y);
-                pdf.setTextColor(textColorR, textColorG, textColorB);
-              }
-            });
-            pdf.setFontSize(9);
-          } else {
-            pdf.text("-", 185, y);
-          }
-          
-          y += 8;
-          rowCount++;
-        }
-      }
-      
-      // Add summary section on a new page if needed
-      if (y > 220) {
-        pdf.addPage();
-        y = 20;
-      } else {
-        y += 15;
-      }
-      
-      // Summary section with modern design
-      pdf.setFillColor(primaryColorR, primaryColorG, primaryColorB);
-      pdf.rect(20, y - 5, pageWidth - 40, 8, 'F');
-      
-      pdf.setTextColor(255, 255, 255);
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(12);
-      pdf.text("BILL SUMMARY", 25, y);
-      y += 15;
-      
-      // Summary items with clean layout
-      pdf.setTextColor(textColorR, textColorG, textColorB);
-      pdf.setFont("helvetica", "normal");
-      pdf.setFontSize(11);
-      
-      const summaryItems = [
-        [`Total Milk Quantity:`, `${totalMilk.toFixed(1)} Liters`],
-        [`Milk Amount:`, `${totalMilkAmount.toFixed(2)}`],
-        [`Grocery Amount:`, `${totalGroceryAmount.toFixed(2)}`],
-        [`Monthly Total:`, `${totalMonthlyAmount.toFixed(2)}`]
-      ];
-      
-      if (pendingBalance > 0) {
-        summaryItems.push([`Previous Balance:`, `${pendingBalance.toFixed(2)}`]);
-      }
-      
-      summaryItems.forEach(([label, value], index) => {
-        pdf.text(label, 25, y);
-        pdf.text(value, 120, y);
-        y += 8;
-      });
-      
-      // Grand total with modern highlighting
-      y += 5;
-      pdf.setFillColor(255, 248, 220);
-      pdf.rect(20, y - 8, pageWidth - 40, 15, 'F');
-      
-      pdf.setDrawColor(primaryColorR, primaryColorG, primaryColorB);
-      pdf.setLineWidth(1);
-      pdf.rect(20, y - 8, pageWidth - 40, 15);
-      
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(14);
-      pdf.setTextColor(primaryColorR, primaryColorG, primaryColorB);
-      pdf.text("TOTAL AMOUNT:", 25, y);
-      pdf.text(`${Math.round(grandTotal)}`, 120, y);
-      y += 20;
-      
-      // Footer with modern styling
-      pdf.setDrawColor(200, 200, 200);
-      pdf.line(20, y, pageWidth - 20, y);
-      y += 10;
-      
-      pdf.setTextColor(100, 100, 100);
-      pdf.setFont("helvetica", "normal");
-      pdf.setFontSize(10);
-      pdf.text("Thank you for your business!", pageWidth / 2, y, { align: "center" });
-      y += 8;
-      pdf.setFont("helvetica", "bold");
-      pdf.text("NARMADA DAIRY", pageWidth / 2, y, { align: "center" });
-      
-      // Save the PDF
-      pdf.save(`${customer.name.replace(/\s+/g, '_')}_${monthName.replace(/\s+/g, '_')}.pdf`);
-      
+      const pdfBlob = await generatePDFBlob();
+      if (!pdfBlob) throw new Error('Could not generate PDF');
+      saveAs(pdfBlob, `${customers.find(c => c.id === selectedCustomer)?.name.replace(/\s+/g, '_')}_${format(selectedDate, 'MMMM_yyyy')}.pdf`);
       toast({
         title: "Success",
         description: "Monthly bill downloaded successfully as PDF",
@@ -660,7 +532,6 @@ Thank you for your business! 🙏
     const daysInMonth = getDaysInMonth(selectedDate);
     const monthName = format(selectedDate, 'MMMM / yyyy');
     
-    // Calculate totals
     let totalMilk = 0;
     let totalGroceryAmount = 0;
     let totalMilkAmount = 0;
@@ -674,16 +545,13 @@ Thank you for your business! 🙏
     const totalMonthlyAmount = totalMilkAmount + totalGroceryAmount;
     const grandTotal = totalMonthlyAmount + pendingBalance;
 
-    // Helper function to combine entries for same time
     const combineEntriesForTime = (entries: DailyEntry[]) => {
       const timeGroups: { [time: string]: DailyEntry } = {};
       
       entries.forEach(entry => {
         if (timeGroups[entry.time]) {
-          // Combine quantities and amounts
           timeGroups[entry.time].milkQuantity += entry.milkQuantity;
           timeGroups[entry.time].milkAmount += entry.milkAmount;
-          // Combine grocery items
           timeGroups[entry.time].grocery.items.push(...entry.grocery.items);
           timeGroups[entry.time].grocery.total += entry.grocery.total;
         } else {
@@ -700,19 +568,15 @@ Thank you for your business! 🙏
 
     return (
       <div className="bg-white rounded-lg overflow-hidden border max-w-6xl">
-        {/* Header */}
         <div className="bg-blue-500 text-white text-center py-3">
           <h3 className="text-lg font-semibold">{customers.find(c => c.id === selectedCustomer)?.name}</h3>
           <p className="text-sm">{monthName}</p>
         </div>
         
-        {/* Two Column Layout */}
         <div className="grid grid-cols-2 gap-4 p-4">
-          {/* Left Column: Days 1-15 */}
           <div className="space-y-2">
             <h4 className="text-center font-medium text-gray-700 mb-3">Days 1-15</h4>
             
-            {/* Table Header */}
             <div className="grid grid-cols-4 bg-gray-100 text-xs font-medium text-gray-700 rounded-t-lg">
               <div className="p-2 text-center border-r">Date</div>
               <div className="p-2 text-center border-r">Time</div>
@@ -720,7 +584,6 @@ Thank you for your business! 🙏
               <div className="p-2 text-center">Grocery</div>
             </div>
             
-            {/* Days 1-15 */}
             <div className="border border-gray-200 rounded-b-lg">
               {Array.from({ length: 15 }, (_, i) => {
                 const day = i + 1;
@@ -740,11 +603,9 @@ Thank you for your business! 🙏
                   );
                 }
                 
-                // Combine entries for same time (merge duplicate entries)
                 const combinedEntries = combineEntriesForTime(dayData.entries);
                 
                 return combinedEntries.map((entry, entryIndex) => {
-                  // Create tooltip content for grocery items
                   const groceryItems = entry.grocery.items;
                   const groceryTotal = entry.grocery.total;
                   const groceryDescription = groceryItems.length > 0 
@@ -794,11 +655,9 @@ Thank you for your business! 🙏
             </div>
           </div>
 
-          {/* Right Column: Days 16-31 */}
           <div className="space-y-2">
             <h4 className="text-center font-medium text-gray-700 mb-3">Days 16-31</h4>
             
-            {/* Table Header */}
             <div className="grid grid-cols-4 bg-gray-100 text-xs font-medium text-gray-700 rounded-t-lg">
               <div className="p-2 text-center border-r">Date</div>
               <div className="p-2 text-center border-r">Time</div>
@@ -806,7 +665,6 @@ Thank you for your business! 🙏
               <div className="p-2 text-center">Grocery</div>
             </div>
             
-            {/* Days 16-31 */}
             <div className="border border-gray-200 rounded-b-lg">
               {Array.from({ length: Math.max(0, daysInMonth - 15) }, (_, i) => {
                 const day = i + 16;
@@ -828,11 +686,9 @@ Thank you for your business! 🙏
                   );
                 }
                 
-                // Combine entries for same time (merge duplicate entries)
                 const combinedEntries = combineEntriesForTime(dayData.entries);
                 
                 return combinedEntries.map((entry, entryIndex) => {
-                  // Create tooltip content for grocery items
                   const groceryItems = entry.grocery.items;
                   const groceryTotal = entry.grocery.total;
                   const groceryDescription = groceryItems.length > 0 
@@ -880,7 +736,6 @@ Thank you for your business! 🙏
                 });
               }).filter(Boolean)}
               
-              {/* Fill empty rows if month has less than 31 days */}
               {Array.from({ length: Math.max(0, 31 - daysInMonth) }, (_, i) => (
                 <div key={`empty-${i}`} className="grid grid-cols-4 border-b last:border-b-0">
                   <div className="p-2 text-center border-r text-sm text-gray-300">-</div>
@@ -893,13 +748,11 @@ Thank you for your business! 🙏
           </div>
         </div>
 
-        {/* Balance Calculations Section - Only show if there's actual data */}
         {(totalMonthlyAmount > 0 || pendingBalance > 0) && (
           <div className="bg-gray-50 p-6 border-t">
             <h3 className="text-lg font-semibold text-gray-800 mb-4 text-center">Monthly Summary & Balance</h3>
             
             <div className="grid grid-cols-2 gap-6">
-              {/* Left side - Monthly totals */}
               <div className="space-y-3">
                 <div className="flex justify-between items-center py-2 border-b border-gray-200">
                   <span className="text-sm font-medium text-gray-600">Total Milk</span>
@@ -919,7 +772,6 @@ Thank you for your business! 🙏
                 </div>
               </div>
 
-              {/* Right side - Balance calculations */}
               <div className="space-y-3">
                 {pendingBalance > 0 && (
                   <div className="flex justify-between items-center py-2 border-b border-gray-200">
@@ -949,7 +801,6 @@ Thank you for your business! 🙏
         <h2 className="text-3xl font-bold text-gray-900">Customer Bills</h2>
       </div>
 
-      {/* Filters */}
       <Card className="p-6">
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div>
@@ -1011,15 +862,15 @@ Thank you for your business! 🙏
 
           <div className="flex items-end">
             <Button
-              onClick={() => {
+              onClick={async () => {
                 const customer = customers.find(c => c.id === selectedCustomer);
-                if (customer) sendWhatsAppBill(customer);
+                if (customer) await sendWhatsAppBill(customer);
               }}
-              disabled={!selectedCustomer || isLoading}
+              disabled={!selectedCustomer || isLoading || isUploadingPDF}
               className="w-full flex items-center bg-green-600 hover:bg-green-700"
             >
               <MessageCircle className="h-4 w-4 mr-2" />
-              Send WhatsApp Bill
+              {isUploadingPDF ? 'Preparing...' : 'Send WhatsApp Bill'}
             </Button>
           </div>
 
@@ -1076,7 +927,6 @@ Thank you for your business! 🙏
         </div>
       </Card>
 
-      {/* Monthly Calendar View */}
       {selectedCustomer && (
         <div className="flex justify-center">
           {isLoading ? (
