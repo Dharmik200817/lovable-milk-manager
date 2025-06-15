@@ -53,6 +53,16 @@ export async function generatePDFBlob({
   monthlyPayments?: number; // <-- NEW
 }) {
   try {
+    // Fetch previous payments made before current month
+    const currentMonthStart = format(selectedDate, 'yyyy-MM-dd');
+    const { data: previousPaymentsData } = await supabase
+      .from('payments')
+      .select('amount, payment_date, payment_method')
+      .eq('customer_name', customer.name)
+      .lt('payment_date', currentMonthStart)
+      .order('payment_date', { ascending: false })
+      .limit(5); // Show last 5 previous payments
+
     const monthName = format(selectedDate, 'MMMM yyyy');
     let totalMilk = 0, totalGroceryAmount = 0, totalMilkAmount = 0;
     Object.values(monthlyData).forEach(day => {
@@ -122,6 +132,24 @@ export async function generatePDFBlob({
       }
     }
     if (y > 220) {pdf.addPage(); y = 20;} else {y += 15;}
+    
+    // Add previous payments section if any exist
+    if (previousPaymentsData && previousPaymentsData.length > 0) {
+      pdf.setFillColor(248,250,252); pdf.rect(20, y-5, pageWidth-40, 8, 'F');
+      pdf.setTextColor(51,65,85); pdf.setFont("helvetica","bold"); pdf.setFontSize(12); 
+      pdf.text("PREVIOUS PAYMENTS", 25, y);
+      y += 10;
+      
+      pdf.setFont("helvetica","normal"); pdf.setFontSize(9);
+      previousPaymentsData.forEach((payment, index) => {
+        if (y > 260) { pdf.addPage(); y = 20; }
+        const paymentDate = new Date(payment.payment_date).toLocaleDateString('en-IN');
+        pdf.text(`${paymentDate} - ₹${payment.amount.toFixed(2)} (${payment.payment_method})`, 25, y);
+        y += 6;
+      });
+      y += 10;
+    }
+
     pdf.setFillColor(41,98,255); pdf.rect(20, y-5, pageWidth-40, 8, 'F');
     pdf.setTextColor(255,255,255); pdf.setFont("helvetica","bold"); pdf.setFontSize(12); pdf.text("BILL SUMMARY", 25, y);
     y += 15;
