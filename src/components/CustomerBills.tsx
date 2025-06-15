@@ -19,6 +19,7 @@ import { CustomerBillsHeader } from "./CustomerBillsHeader";
 import { CustomerBillsCalendarGrid } from "./CustomerBillsCalendarGrid";
 import { CustomerBillsSummary } from "./CustomerBillsSummary";
 
+// Ensure Customer includes address (as in DB/table)
 interface Customer {
   id: string;
   name: string;
@@ -314,6 +315,7 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
     }
   };
 
+  // Fix the typing here for sendWhatsAppBill - always pass a complete Customer (with address)
   const sendWhatsAppBill = async (customer: Customer) => {
     if (!customer.phone_number) {
       toast({
@@ -342,7 +344,7 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
       });
       if (!pdfUrl) throw new Error("Could not upload PDF for WhatsApp message.");
 
-      // Build WhatsApp message body with necessary summary and attached PDF link (NO payment instructions)
+      // Build WhatsApp message body
       const message = buildWhatsAppBillMessage({
         customer,
         selectedDate,
@@ -430,6 +432,7 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
           selectedDate={selectedDate}
           setSelectedDate={setSelectedDate}
           generatePDF={generatePDF}
+          // Update how sendWhatsAppBill is passed:
           sendWhatsAppBill={(customerIdOrObj) => {
             // always pass a full Customer object to sendWhatsAppBill
             // if the param is just an id (string), find the customer
@@ -439,7 +442,8 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
             } else {
               customer = customerIdOrObj;
             }
-            if (customer && customer.address) {
+            // Ensure 'customer' includes 'address':
+            if (customer && typeof customer.address === "string" && customer.address.trim() !== "") {
               sendWhatsAppBill(customer);
             } else {
               toast({
@@ -460,6 +464,7 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
         />
       </Card>
 
+      {/* Render rest of component as previously */}
       {selectedCustomer && (
         <div className="flex justify-center">
           {isLoading ? (
