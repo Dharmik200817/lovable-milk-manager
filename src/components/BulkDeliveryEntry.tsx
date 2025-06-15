@@ -217,12 +217,7 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
     if (currentEntryIndex < entries.length - 1) {
       setCurrentEntryIndex(currentEntryIndex + 1);
       setIsGroceryOnly(false);
-      // Auto-advance date to next day
-      if (selectedDate) {
-        const nextDate = new Date(selectedDate);
-        nextDate.setDate(nextDate.getDate() + 1);
-        setSelectedDate(nextDate);
-      }
+      // Don't auto-advance date - let user control the date
     } else {
       // Instead of closing, show completion message and reset to first customer
       toast({ 
@@ -319,6 +314,13 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
             description: "Moving to next customer.",
             duration: 1500,
         });
+        
+        // Auto-advance date to next day only when saving
+        if (selectedDate && currentEntryIndex < entries.length - 1) {
+          const nextDate = new Date(selectedDate);
+          nextDate.setDate(nextDate.getDate() + 1);
+          setSelectedDate(nextDate);
+        }
         
         goToNextCustomer();
 
