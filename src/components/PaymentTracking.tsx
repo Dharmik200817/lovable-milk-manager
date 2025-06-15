@@ -105,6 +105,13 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
       return;
     }
 
+    // Ensure payment_date is only "YYYY-MM-DD"
+    let payment_date_iso = formData.payment_date;
+    if (payment_date_iso) {
+      // If full ISO, trim to just date
+      payment_date_iso = payment_date_iso.split("T")[0];
+    }
+
     try {
       setIsLoading(true);
 
@@ -113,8 +120,8 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
         .from('payments')
         .insert({
           customer_name: formData.customer_name.trim(),
-          amount: amount,
-          payment_date: formData.payment_date,
+          amount: parseFloat(formData.amount),
+          payment_date: payment_date_iso, // Only the date
           payment_method: formData.payment_method,
           notes: formData.notes.trim() || null
         });
@@ -310,7 +317,12 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
                       <div className="text-sm text-gray-900">₹{payment.amount.toFixed(2)}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{new Date(payment.payment_date).toLocaleDateString()}</div>
+                      {/* Display date only */}
+                      <div className="text-sm text-gray-900">
+                        {payment.payment_date
+                          ? new Date(payment.payment_date).toLocaleDateString()
+                          : "-"}
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">{payment.payment_method}</div>
