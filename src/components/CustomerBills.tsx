@@ -314,7 +314,7 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
     }
   };
 
-  const sendWhatsAppBill = async (customer: BillCustomer) => {
+  const sendWhatsAppBill = async (customer: Customer) => {
     if (!customer.phone_number) {
       toast({
         title: "Error",
@@ -430,7 +430,25 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
           selectedDate={selectedDate}
           setSelectedDate={setSelectedDate}
           generatePDF={generatePDF}
-          sendWhatsAppBill={async (customer) => await sendWhatsAppBill(customer)}
+          sendWhatsAppBill={(customerIdOrObj) => {
+            // always pass a full Customer object to sendWhatsAppBill
+            // if the param is just an id (string), find the customer
+            let customer: Customer | undefined;
+            if (typeof customerIdOrObj === "string") {
+              customer = customers.find(c => c.id === customerIdOrObj);
+            } else {
+              customer = customerIdOrObj;
+            }
+            if (customer && customer.address) {
+              sendWhatsAppBill(customer);
+            } else {
+              toast({
+                title: "Error",
+                description: "Customer details not found or incomplete.",
+                variant: "destructive"
+              });
+            }
+          }}
           isUploadingPDF={isUploadingPDF}
           isLoading={isLoading}
           clearPasswordDialog={clearPasswordDialog}
