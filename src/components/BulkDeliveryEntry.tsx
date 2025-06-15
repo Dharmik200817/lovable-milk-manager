@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -136,80 +137,47 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
     setIsSaving(true);
     try {
       const deliveryDate = format(selectedDate, 'yyyy-MM-dd');
-      const deliveryRecordsToInsert = entries.map(entry => {
-        const milkTypeEntriesArray = Object.entries(entry.milkTypeEntries).map(([milkTypeId, quantity]) => ({
-          milk_type_id: milkTypeId,
-          quantity: quantity
-        }));
-
-        return {
-          customer_id: entry.customerId,
-          delivery_date: deliveryDate,
-          milk_entries: milkTypeEntriesArray
-        };
-      });
-
-      // Function to insert delivery records
-      const insertDeliveryRecords = async () => {
-        const { error } = await supabase
-          .from('delivery_records')
-          .insert(
-            deliveryRecordsToInsert.map(record => ({
-              customer_id: record.customer_id,
-              delivery_date: record.delivery_date
-            }))
-          );
-
-        if (error) {
-          throw error;
-        }
-      };
-
-      // Function to insert grocery items
-      const insertGroceryItems = async () => {
-        // Fetch delivery_record IDs for the given customer IDs and delivery date
-        const { data: deliveryRecords, error: deliveryRecordsError } = await supabase
-          .from('delivery_records')
-          .select('id, customer_id')
-          .in('customer_id', deliveryRecordsToInsert.map(record => record.customer_id))
-          .eq('delivery_date', deliveryDate);
-
-        if (deliveryRecordsError) {
-          throw deliveryRecordsError;
-        }
-
-        if (!deliveryRecords || deliveryRecords.length === 0) {
-          throw new Error('No delivery records found for the given customers and date.');
-        }
-
-        // Prepare grocery items for insertion
-        const groceryItemsToInsert = [];
-        for (const record of deliveryRecordsToInsert) {
-          const deliveryRecord = deliveryRecords.find(dr => dr.customer_id === record.customer_id);
-          if (deliveryRecord) {
-            for (const milkEntry of record.milk_entries) {
-              groceryItemsToInsert.push({
-                delivery_record_id: deliveryRecord.id,
-                milk_type_id: milkEntry.milk_type_id,
-                quantity: milkEntry.quantity
+      
+      // Prepare delivery records with complete data
+      const deliveryRecordsToInsert = [];
+      
+      for (const entry of entries) {
+        for (const [milkTypeId, quantity] of Object.entries(entry.milkTypeEntries)) {
+          if (quantity > 0) {
+            const milkType = milkTypes.find(mt => mt.id === milkTypeId);
+            if (milkType) {
+              const totalAmount = quantity * milkType.price_per_liter;
+              deliveryRecordsToInsert.push({
+                customer_id: entry.customerId,
+                delivery_date: deliveryDate,
+                milk_type_id: milkTypeId,
+                quantity: quantity,
+                price_per_liter: milkType.price_per_liter,
+                total_amount: totalAmount,
+                notes: null
               });
             }
           }
         }
+      }
 
-        // Insert grocery items
-        const { error: groceryItemsError } = await supabase
-          .from('grocery_items')
-          .insert(groceryItemsToInsert);
+      if (deliveryRecordsToInsert.length === 0) {
+        toast({
+          title: "Error",
+          description: "No delivery entries found. Please enter quantities for at least one customer.",
+          variant: "destructive",
+        })
+        return;
+      }
 
-        if (groceryItemsError) {
-          throw groceryItemsError;
-        }
-      };
+      // Insert delivery records
+      const { error } = await supabase
+        .from('delivery_records')
+        .insert(deliveryRecordsToInsert);
 
-      // Execute the database operations
-      await insertDeliveryRecords();
-      await insertGroceryItems();
+      if (error) {
+        throw error;
+      }
 
       toast({
         title: "Success",
