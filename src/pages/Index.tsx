@@ -144,21 +144,29 @@ const Index = () => {
 
       {/* Navigation Tabs */}
       <nav className="bg-white border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex space-x-8">
+        <div className="max-w-7xl mx-auto px-0 sm:px-6 lg:px-8">
+          {/* Scrollable navigation on mobile */}
+          <div
+            className="flex space-x-2 sm:space-x-8 overflow-x-auto no-scrollbar scrollbar-hide py-1 px-1 sm:px-0"
+            style={{ WebkitOverflowScrolling: 'touch' }}
+          >
             {tabs.map(tab => {
               const Icon = tab.icon;
               return (
                 <button
                   key={tab.id}
                   onClick={() => handleTabChange(tab.id)}
-                  className={`flex items-center py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                    activeTab === tab.id
-                      ? 'border-blue-500 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
+                  className={`
+                    flex items-center flex-shrink-0
+                    py-3 px-3 sm:px-4 border-b-2 font-medium text-xs sm:text-sm
+                    rounded-t-lg transition-colors
+                    ${activeTab === tab.id
+                      ? 'border-blue-500 text-blue-600 bg-blue-50'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}
+                  `}
+                  style={{ minWidth: 110 }}
                 >
-                  <Icon className="h-5 w-5 mr-2" />
+                  <Icon className="h-5 w-5 mr-1 sm:mr-2" />
                   {tab.label}
                 </button>
               );
@@ -168,7 +176,7 @@ const Index = () => {
       </nav>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-1 sm:px-6 lg:px-8 py-8">
         {renderContent()}
       </main>
     </div>
@@ -176,3 +184,4 @@ const Index = () => {
 };
 
 export default Index;
+
