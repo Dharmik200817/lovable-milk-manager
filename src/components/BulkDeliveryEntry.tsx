@@ -309,11 +309,12 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
         
         toast({
             title: `Saved for ${entry.customerName}`,
-            description: "Moving to next customer.",
+            description: "Switching to single entry mode.",
             duration: 1500,
         });
         
-        goToNextCustomer();
+        // Switch to single entry mode instead of going to next customer
+        onClose();
 
     } catch (error: any) {
         console.error("Error saving delivery record:", error);
@@ -505,7 +506,7 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
                 <SkipForward className="mr-2" /> Skip Customer
             </Button>
             <Button className="w-full bg-green-600 hover:bg-green-700" onClick={handleSaveAndNext} disabled={isSaving}>
-                {isSaving ? 'Saving...' : <><ArrowRight className="mr-2" /> Save & Next</>}
+                {isSaving ? 'Saving...' : <><ArrowRight className="mr-2" /> Save & Switch to Manual</>}
             </Button>
         </div>
       </Card>
