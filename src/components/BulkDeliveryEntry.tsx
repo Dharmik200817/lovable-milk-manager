@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,13 +7,12 @@ import { Label } from '@/components/ui/label';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { toast } from '@/hooks/use-toast';
 import { cn } from "@/lib/utils"
 import { format } from 'date-fns';
-import { CalendarIcon, CheckCircle, Circle, Plus, Trash2 } from 'lucide-react';
-import { useToast } from "@/hooks/use-toast"
+import { CalendarIcon, ArrowRight, SkipForward } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface Customer {
   id: string;
@@ -23,7 +22,7 @@ interface Customer {
 }
 
 interface MilkType {
-  id: string;
+  id:string;
   name: string;
   price_per_liter: number;
 }
@@ -31,9 +30,8 @@ interface MilkType {
 interface DeliveryEntry {
   customerId: string;
   customerName: string;
-  milkTypeEntries: {
-    [milkTypeId: string]: number;
-  };
+  milkTypeId: string;
+  quantityInMl: number;
 }
 
 interface BulkDeliveryEntryProps {
@@ -48,9 +46,8 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
   const [entries, setEntries] = useState<DeliveryEntry[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [isAllSelected, setIsAllSelected] = useState(false);
-  const [selectedCustomerIds, setSelectedCustomerIds] = useState<Set<string>>(new Set());
-  const { toast } = useToast()
+  const [deliveryTime, setDeliveryTime] = useState<'morning' | 'evening'>('morning');
+  const [isGroceryOnly, setIsGroceryOnly] = useState(false);
 
   useEffect(() => {
     loadInitialData();
@@ -78,7 +75,8 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
       setEntries(customersData ? customersData.map(c => ({
         customerId: c.id,
         customerName: c.name,
-        milkTypeEntries: {}
+        milkTypeId: milkTypesData?.[0]?.id || '',
+        quantityInMl: 0
       })) : []);
     } catch (error: any) {
       console.error("Error loading data:", error);
@@ -95,176 +93,95 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
   const handleDateSelect = (date: Date | undefined) => {
     setSelectedDate(date);
   };
-
-  const handleQuantityChange = (milkTypeId: string, quantity: number) => {
+  
+  const handleMilkTypeChange = (milkTypeId: string) => {
     setEntries(prevEntries => {
       const newEntries = [...prevEntries];
-      newEntries[currentEntryIndex] = {
-        ...newEntries[currentEntryIndex],
-        milkTypeEntries: {
-          ...newEntries[currentEntryIndex].milkTypeEntries,
-          [milkTypeId]: quantity
-        }
-      };
+      if (newEntries[currentEntryIndex]) {
+        newEntries[currentEntryIndex].milkTypeId = milkTypeId;
+      }
       return newEntries;
     });
   };
 
-  const handleNextEntry = () => {
+  const handleQuantityChange = (quantityInMl: number) => {
+    setEntries(prevEntries => {
+      const newEntries = [...prevEntries];
+      if (newEntries[currentEntryIndex]) {
+        newEntries[currentEntryIndex].quantityInMl = isNaN(quantityInMl) ? 0 : quantityInMl;
+      }
+      return newEntries;
+    });
+  };
+
+  const goToNextCustomer = () => {
     if (currentEntryIndex < entries.length - 1) {
       setCurrentEntryIndex(currentEntryIndex + 1);
+      setIsGroceryOnly(false);
+    } else {
+      toast({ title: "All entries complete!" });
+      onClose();
     }
+  }
+
+  const handleSkipCustomer = () => {
+    goToNextCustomer();
   };
 
-  const handlePreviousEntry = () => {
-    if (currentEntryIndex > 0) {
-      setCurrentEntryIndex(currentEntryIndex - 1);
-    }
-  };
-
-  const currentEntry = entries[currentEntryIndex];
-
-  const handleSubmit = async () => {
+  const handleSaveAndNext = async () => {
     if (!selectedDate) {
-      toast({
-        title: "Error",
-        description: "Please select a date for the deliveries.",
-        variant: "destructive",
-      })
+      toast({ title: "Error", description: "Please select a date.", variant: "destructive" });
       return;
     }
 
     setIsSaving(true);
+    const entry = entries[currentEntryIndex];
+
     try {
-      const deliveryDate = format(selectedDate, 'yyyy-MM-dd');
-      
-      // Prepare delivery records with complete data
-      const deliveryRecordsToInsert = [];
-      
-      for (const entry of entries) {
-        for (const [milkTypeId, quantity] of Object.entries(entry.milkTypeEntries)) {
-          if (quantity > 0) {
-            const milkType = milkTypes.find(mt => mt.id === milkTypeId);
+        const deliveryDate = format(selectedDate, 'yyyy-MM-dd');
+        const quantityInLiters = entry.quantityInMl / 1000;
+
+        if (!isGroceryOnly && quantityInLiters > 0 && entry.milkTypeId) {
+            const milkType = milkTypes.find(mt => mt.id === entry.milkTypeId);
             if (milkType) {
-              const totalAmount = quantity * milkType.price_per_liter;
-              deliveryRecordsToInsert.push({
-                customer_id: entry.customerId,
-                delivery_date: deliveryDate,
-                milk_type_id: milkTypeId,
-                quantity: quantity,
-                price_per_liter: milkType.price_per_liter,
-                total_amount: totalAmount,
-                notes: null
-              });
+                const totalAmount = quantityInLiters * milkType.price_per_liter;
+                const deliveryRecord = {
+                    customer_id: entry.customerId,
+                    delivery_date: deliveryDate,
+                    milk_type_id: entry.milkTypeId,
+                    quantity: quantityInLiters,
+                    price_per_liter: milkType.price_per_liter,
+                    total_amount: totalAmount,
+                    notes: `Delivery Time: ${deliveryTime}`
+                };
+                const { error } = await supabase.from('delivery_records').insert([deliveryRecord]);
+                if (error) throw error;
             }
-          }
         }
-      }
-
-      if (deliveryRecordsToInsert.length === 0) {
+        
         toast({
-          title: "Error",
-          description: "No delivery entries found. Please enter quantities for at least one customer.",
-          variant: "destructive",
-        })
-        return;
-      }
+            title: `Saved for ${entry.customerName}`,
+            description: "Moving to next customer.",
+            duration: 1500,
+        });
+        
+        goToNextCustomer();
 
-      // Insert delivery records
-      const { error } = await supabase
-        .from('delivery_records')
-        .insert(deliveryRecordsToInsert);
-
-      if (error) {
-        throw error;
-      }
-
-      toast({
-        title: "Success",
-        description: "Delivery records saved successfully!",
-      })
-      onClose();
     } catch (error: any) {
-      console.error("Error saving delivery records:", error);
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Failed to save delivery records.",
-      })
+        console.error("Error saving delivery record:", error);
+        toast({
+            variant: "destructive",
+            title: "Error",
+            description: `Failed to save for ${entry.customerName}.`,
+        });
     } finally {
-      setIsSaving(false);
+        setIsSaving(false);
     }
   };
 
-  const toggleCustomerSelection = (customerId: string) => {
-    setSelectedCustomerIds(prev => {
-      const newSelection = new Set(prev);
-      if (newSelection.has(customerId)) {
-        newSelection.delete(customerId);
-      } else {
-        newSelection.add(customerId);
-      }
-      return newSelection;
-    });
-  };
-
-  const handleSelectAll = () => {
-    setIsAllSelected(prev => !prev);
-    setSelectedCustomerIds(prev => {
-      if (!isAllSelected) {
-        return new Set(customers.map(c => c.id));
-      } else {
-        return new Set();
-      }
-    });
-  };
-
-  const handleDeleteSelected = async () => {
-    if (selectedCustomerIds.size === 0) {
-      toast({
-        title: "Error",
-        description: "No customers selected for deletion.",
-        variant: "destructive",
-      })
-      return;
-    }
-
-    if (!window.confirm("Are you sure you want to delete the selected customers? This action cannot be undone.")) {
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      // Delete customers from Supabase
-      const { error } = await supabase
-        .from('customers')
-        .delete()
-        .in('id', Array.from(selectedCustomerIds));
-
-      if (error) {
-        throw error;
-      }
-
-      // Update state
-      setCustomers(prevCustomers => prevCustomers.filter(c => !selectedCustomerIds.has(c.id)));
-      setSelectedCustomerIds(new Set());
-      setIsAllSelected(false);
-
-      toast({
-        title: "Success",
-        description: "Selected customers deleted successfully!",
-      })
-    } catch (error: any) {
-      console.error("Error deleting customers:", error);
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Failed to delete selected customers.",
-      })
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  if (isLoading) {
+    return <div className="text-center py-8 text-gray-500">Loading customers...</div>;
+  }
 
   if (customers.length === 0) {
     return (
@@ -274,102 +191,114 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
     );
   }
 
-  return (
-    <div className="space-y-6 pb-20 sm:pb-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl sm:text-3xl font-bold text-gray-900">Bulk Delivery Entry</h2>
-      </div>
+  const currentEntry = entries[currentEntryIndex];
+  const selectedMilkType = milkTypes.find(mt => mt.id === currentEntry?.milkTypeId);
+  const quantityInLiters = currentEntry?.quantityInMl / 1000 || 0;
+  const totalAmount = quantityInLiters * (selectedMilkType?.price_per_liter || 0);
 
+  return (
+    <div className="space-y-4">
       <Card className="p-4">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-gray-800">Select Delivery Date</h3>
+        <div className="flex items-center gap-4">
+          <Label htmlFor="delivery-date">Delivery Date:</Label>
           <Popover>
             <PopoverTrigger asChild>
               <Button
+                id="delivery-date"
                 variant={"outline"}
-                className={cn(
-                  "w-[240px] justify-start text-left font-normal",
-                  !selectedDate && "text-muted-foreground"
-                )}
+                className={cn("w-[240px] justify-start text-left font-normal", !selectedDate && "text-muted-foreground")}
               >
                 <CalendarIcon className="mr-2 h-4 w-4" />
-                {selectedDate ? format(selectedDate, "PPP") : <span>Pick a date</span>}
+                {selectedDate ? format(selectedDate, "dd/MM/yyyy") : <span>Pick a date</span>}
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-0" align="start">
-              <Calendar
-                mode="single"
-                selected={selectedDate}
-                onSelect={handleDateSelect}
-                disabled={isLoading}
-                initialFocus
-              />
+              <Calendar mode="single" selected={selectedDate} onSelect={handleDateSelect} disabled={isLoading} initialFocus />
             </PopoverContent>
           </Popover>
         </div>
-
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-800">Customer Information</h3>
-          <div className="flex items-center space-x-2">
-            <Button variant="outline" size="sm" onClick={handlePreviousEntry} disabled={currentEntryIndex === 0 || isLoading}>
-              Previous
-            </Button>
-            <span className="text-sm text-gray-600">
-              {currentEntryIndex + 1} / {entries.length}
-            </span>
-            <Button variant="outline" size="sm" onClick={handleNextEntry} disabled={currentEntryIndex === entries.length - 1 || isLoading}>
-              Next
-            </Button>
+      </Card>
+      
+      <Card className="p-4">
+          <div className="flex items-center justify-between">
+              <p className="text-sm text-purple-700 font-medium">
+                  Current Customer: {currentEntry?.customerName} ({currentEntryIndex + 1}/{entries.length})
+              </p>
+              <Button variant="outline" size="sm" onClick={onClose}>Switch to Manual</Button>
           </div>
-        </div>
       </Card>
 
       <Card className="p-6">
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg sm:text-xl font-semibold text-blue-600">
-            Entry Form - {currentEntry.customerName}
-          </h3>
-          <div className="hidden sm:block space-x-2">
-            <Button variant="outline" size="sm" onClick={handleSubmit} disabled={isSaving || isLoading}>
-              {isSaving ? 'Saving...' : 'Save Delivery'}
-            </Button>
-            <Button variant="destructive" size="sm" onClick={onClose} disabled={isSaving || isLoading}>
-              Cancel
-            </Button>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {milkTypes.map(milkType => (
-            <div key={milkType.id} className="flex items-center space-x-2">
-              <Label htmlFor={`milk-${milkType.id}`} className="w-24 text-right">
-                {milkType.name}:
-              </Label>
-              <Input
-                type="number"
-                id={`milk-${milkType.id}`}
-                placeholder="0"
-                min="0"
-                value={currentEntry.milkTypeEntries[milkType.id] || ''}
-                onChange={(e) => {
-                  const value = parseInt(e.target.value);
-                  handleQuantityChange(milkType.id, isNaN(value) ? 0 : value);
-                }}
-                disabled={isLoading}
-              />
+        <h3 className="text-lg sm:text-xl font-semibold text-blue-600 mb-4">
+          Entry Form - {currentEntry?.customerName}
+        </h3>
+        <div className="space-y-6">
+            <div>
+              <Label>Delivery Time</Label>
+              <div className="flex gap-2 mt-2">
+                  <Button variant={deliveryTime === 'morning' ? 'default' : 'outline'} className="flex-1" onClick={() => setDeliveryTime('morning')}>Morning</Button>
+                  <Button variant={deliveryTime === 'evening' ? 'default' : 'outline'} className="flex-1" onClick={() => setDeliveryTime('evening')}>Evening</Button>
+              </div>
             </div>
-          ))}
+
+            <div className="flex items-center space-x-2">
+                <Checkbox id="grocery" checked={isGroceryOnly} onCheckedChange={(checked) => setIsGroceryOnly(checked as boolean)} />
+                <Label htmlFor="grocery">Grocery Only (No Milk)</Label>
+            </div>
+            
+            <div className={cn("space-y-4", isGroceryOnly && "opacity-50 pointer-events-none")}>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                    <div>
+                        <Label htmlFor="milk-type">Milk Type *</Label>
+                        <Select value={currentEntry?.milkTypeId} onValueChange={handleMilkTypeChange}>
+                          <SelectTrigger id="milk-type">
+                            <SelectValue placeholder="Select milk type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {milkTypes.map(mt => (
+                              <SelectItem key={mt.id} value={mt.id}>{mt.name} - ₹{mt.price_per_liter}/L</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                    </div>
+                    <div>
+                        <Label htmlFor="quantity">Quantity (ml) *</Label>
+                        <Input id="quantity" type="number" placeholder="e.g. 1500" value={currentEntry?.quantityInMl || ''} onChange={e => handleQuantityChange(parseInt(e.target.value))} />
+                    </div>
+                    <div>
+                        <Label>Price per Liter (₹)</Label>
+                        <Input value={selectedMilkType?.price_per_liter || ''} readOnly className="bg-gray-100" />
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <Label>Grocery Items</Label>
+                <div className="mt-2 text-center border-dashed border-2 border-gray-300 p-4 rounded-md">
+                    <Button variant="outline" size="sm" disabled>
+                        <Plus className="mr-2 h-4 w-4"/>
+                        Add Item
+                    </Button>
+                    <p className="text-xs text-gray-500 mt-2">Grocery tracking coming soon!</p>
+                </div>
+            </div>
+
+            <div className="bg-blue-50 p-4 rounded-md text-center">
+                <p className="font-bold text-lg text-blue-800">
+                    Total Amount: ₹{totalAmount.toFixed(2)}
+                </p>
+                <p className="text-sm text-gray-600">({currentEntry?.quantityInMl || 0}ml = {quantityInLiters.toFixed(2)}L)</p>
+            </div>
+        </div>
+        <div className="flex gap-4 mt-6">
+            <Button variant="outline" className="w-full" onClick={handleSkipCustomer} disabled={isSaving}>
+                <SkipForward className="mr-2" /> Skip Customer
+            </Button>
+            <Button className="w-full bg-green-600 hover:bg-green-700" onClick={handleSaveAndNext} disabled={isSaving}>
+                {isSaving ? 'Saving...' : <><ArrowRight className="mr-2" /> Save & Next</>}
+            </Button>
         </div>
       </Card>
-
-      <div className="sm:hidden fixed bottom-0 left-0 w-full bg-gray-50 border-t p-4 flex justify-around">
-        <Button className="w-1/2 mx-1" onClick={handleSubmit} disabled={isSaving || isLoading}>
-          {isSaving ? 'Saving...' : 'Save Delivery'}
-        </Button>
-        <Button variant="destructive" className="w-1/2 mx-1" onClick={onClose} disabled={isSaving || isLoading}>
-          Cancel
-        </Button>
-      </div>
     </div>
   );
 };
