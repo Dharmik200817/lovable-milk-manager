@@ -10,7 +10,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from '@/hooks/use-toast';
 import { cn } from "@/lib/utils"
 import { format } from 'date-fns';
-import { CalendarIcon, ArrowRight, SkipForward, Plus } from 'lucide-react';
+import { CalendarIcon, ArrowRight, SkipForward, Plus, Trash2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
@@ -27,11 +27,20 @@ interface MilkType {
   price_per_liter: number;
 }
 
+interface GroceryItem {
+  id?: string;
+  name: string;
+  quantity: number;
+  unit: string;
+  price: number;
+}
+
 interface DeliveryEntry {
   customerId: string;
   customerName: string;
   milkTypeId: string;
   quantityInMl: number;
+  groceryItems: GroceryItem[];
 }
 
 interface BulkDeliveryEntryProps {
@@ -48,10 +57,22 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
   const [isLoading, setIsLoading] = useState(true);
   const [deliveryTime, setDeliveryTime] = useState<'morning' | 'evening'>('morning');
   const [isGroceryOnly, setIsGroceryOnly] = useState(false);
+  const [newGroceryItem, setNewGroceryItem] = useState<GroceryItem>({
+    name: '',
+    quantity: 0,
+    unit: 'kg',
+    price: 0
+  });
 
   useEffect(() => {
     loadInitialData();
   }, []);
+
+  useEffect(() => {
+    if (customers.length > 0 && currentEntryIndex < customers.length) {
+      loadPreviousRecord(customers[currentEntryIndex].id);
+    }
+  }, [currentEntryIndex, customers]);
 
   const loadInitialData = async () => {
     setIsLoading(true);
@@ -76,7 +97,8 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
         customerId: c.id,
         customerName: c.name,
         milkTypeId: milkTypesData?.[0]?.id || '',
-        quantityInMl: 0
+        quantityInMl: 0,
+        groceryItems: []
       })) : []);
     } catch (error: any) {
       console.error("Error loading data:", error);
@@ -87,6 +109,83 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
       });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const loadPreviousRecord = async (customerId: string) => {
+    try {
+      // Get the most recent delivery record for this customer
+      const { data: deliveryData, error: deliveryError } = await supabase
+        .from('delivery_records')
+        .select('milk_type_id, quantity, notes')
+        .eq('customer_id', customerId)
+        .order('delivery_date', { ascending: false })
+        .limit(1);
+
+      if (deliveryError) throw deliveryError;
+
+      if (deliveryData && deliveryData.length > 0) {
+        const lastDelivery = deliveryData[0];
+        
+        // Auto-fill milk type and quantity
+        setEntries(prevEntries => {
+          const newEntries = [...prevEntries];
+          if (newEntries[currentEntryIndex]) {
+            newEntries[currentEntryIndex].milkTypeId = lastDelivery.milk_type_id;
+            newEntries[currentEntryIndex].quantityInMl = Math.round(lastDelivery.quantity * 1000);
+          }
+          return newEntries;
+        });
+
+        // Extract delivery time from notes if available
+        if (lastDelivery.notes && lastDelivery.notes.includes('Delivery Time:')) {
+          const timeMatch = lastDelivery.notes.match(/Delivery Time: (morning|evening)/);
+          if (timeMatch) {
+            setDeliveryTime(timeMatch[1] as 'morning' | 'evening');
+          }
+        }
+      }
+
+      // Get the most recent grocery items for this customer
+      const { data: groceryData, error: groceryError } = await supabase
+        .from('grocery_items')
+        .select(`
+          name, quantity, unit, price,
+          delivery_records!inner(customer_id, delivery_date)
+        `)
+        .eq('delivery_records.customer_id', customerId)
+        .order('delivery_records.delivery_date', { ascending: false })
+        .limit(10);
+
+      if (groceryError) throw groceryError;
+
+      if (groceryData && groceryData.length > 0) {
+        // Group items by name and get the most recent for each
+        const latestItems = groceryData.reduce((acc: {[key: string]: GroceryItem}, item: any) => {
+          if (!acc[item.name]) {
+            acc[item.name] = {
+              name: item.name,
+              quantity: item.quantity,
+              unit: item.unit,
+              price: item.price
+            };
+          }
+          return acc;
+        }, {});
+
+        // Auto-fill grocery items
+        setEntries(prevEntries => {
+          const newEntries = [...prevEntries];
+          if (newEntries[currentEntryIndex]) {
+            newEntries[currentEntryIndex].groceryItems = Object.values(latestItems);
+          }
+          return newEntries;
+        });
+      }
+
+    } catch (error: any) {
+      console.error("Error loading previous record:", error);
+      // Don't show error toast for this as it's not critical
     }
   };
 
@@ -114,10 +213,62 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
     });
   };
 
+  const addGroceryItem = () => {
+    if (!newGroceryItem.name || newGroceryItem.quantity <= 0 || newGroceryItem.price <= 0) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Please fill all grocery item fields."
+      });
+      return;
+    }
+
+    setEntries(prevEntries => {
+      const newEntries = [...prevEntries];
+      if (newEntries[currentEntryIndex]) {
+        newEntries[currentEntryIndex].groceryItems.push({...newGroceryItem});
+      }
+      return newEntries;
+    });
+
+    setNewGroceryItem({
+      name: '',
+      quantity: 0,
+      unit: 'kg',
+      price: 0
+    });
+  };
+
+  const removeGroceryItem = (index: number) => {
+    setEntries(prevEntries => {
+      const newEntries = [...prevEntries];
+      if (newEntries[currentEntryIndex]) {
+        newEntries[currentEntryIndex].groceryItems.splice(index, 1);
+      }
+      return newEntries;
+    });
+  };
+
+  const updateGroceryItem = (index: number, field: keyof GroceryItem, value: any) => {
+    setEntries(prevEntries => {
+      const newEntries = [...prevEntries];
+      if (newEntries[currentEntryIndex]) {
+        (newEntries[currentEntryIndex].groceryItems[index] as any)[field] = value;
+      }
+      return newEntries;
+    });
+  };
+
   const goToNextCustomer = () => {
     if (currentEntryIndex < entries.length - 1) {
       setCurrentEntryIndex(currentEntryIndex + 1);
       setIsGroceryOnly(false);
+      // Auto-advance date to next day
+      if (selectedDate) {
+        const nextDate = new Date(selectedDate);
+        nextDate.setDate(nextDate.getDate() + 1);
+        setSelectedDate(nextDate);
+      }
     } else {
       toast({ title: "All entries complete!" });
       onClose();
@@ -139,11 +290,13 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
 
     try {
         const deliveryDate = format(selectedDate, 'yyyy-MM-dd');
-        const quantityInLiters = entry.quantityInMl / 1000;
+        let deliveryRecordId = null;
 
-        if (!isGroceryOnly && quantityInLiters > 0 && entry.milkTypeId) {
+        // Save milk delivery if not grocery only
+        if (!isGroceryOnly && entry.quantityInMl > 0 && entry.milkTypeId) {
             const milkType = milkTypes.find(mt => mt.id === entry.milkTypeId);
             if (milkType) {
+                const quantityInLiters = entry.quantityInMl / 1000;
                 const totalAmount = quantityInLiters * milkType.price_per_liter;
                 const deliveryRecord = {
                     customer_id: entry.customerId,
@@ -154,9 +307,57 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
                     total_amount: totalAmount,
                     notes: `Delivery Time: ${deliveryTime}`
                 };
-                const { error } = await supabase.from('delivery_records').insert([deliveryRecord]);
+                
+                const { data, error } = await supabase
+                    .from('delivery_records')
+                    .insert([deliveryRecord])
+                    .select()
+                    .single();
+                
                 if (error) throw error;
+                deliveryRecordId = data.id;
             }
+        }
+
+        // Save grocery items if any
+        if (entry.groceryItems.length > 0) {
+            // If no milk delivery, create a delivery record for grocery items
+            if (!deliveryRecordId) {
+                const deliveryRecord = {
+                    customer_id: entry.customerId,
+                    delivery_date: deliveryDate,
+                    milk_type_id: milkTypes[0]?.id || '', // Use first milk type as placeholder
+                    quantity: 0,
+                    price_per_liter: 0,
+                    total_amount: 0,
+                    notes: `Grocery Only - Delivery Time: ${deliveryTime}`
+                };
+                
+                const { data, error } = await supabase
+                    .from('delivery_records')
+                    .insert([deliveryRecord])
+                    .select()
+                    .single();
+                
+                if (error) throw error;
+                deliveryRecordId = data.id;
+            }
+
+            // Insert grocery items
+            const groceryItemsToInsert = entry.groceryItems.map(item => ({
+                delivery_record_id: deliveryRecordId,
+                name: item.name,
+                quantity: item.quantity,
+                unit: item.unit,
+                price: item.price,
+                description: null
+            }));
+
+            const { error: groceryError } = await supabase
+                .from('grocery_items')
+                .insert(groceryItemsToInsert);
+
+            if (groceryError) throw groceryError;
         }
         
         toast({
@@ -194,7 +395,9 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
   const currentEntry = entries[currentEntryIndex];
   const selectedMilkType = milkTypes.find(mt => mt.id === currentEntry?.milkTypeId);
   const quantityInLiters = currentEntry?.quantityInMl / 1000 || 0;
-  const totalAmount = quantityInLiters * (selectedMilkType?.price_per_liter || 0);
+  const milkAmount = quantityInLiters * (selectedMilkType?.price_per_liter || 0);
+  const groceryAmount = currentEntry?.groceryItems.reduce((sum, item) => sum + (item.quantity * item.price), 0) || 0;
+  const totalAmount = milkAmount + groceryAmount;
 
   return (
     <div className="space-y-4">
@@ -270,24 +473,118 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
                         <Input value={selectedMilkType?.price_per_liter || ''} readOnly className="bg-gray-100" />
                     </div>
                 </div>
+                {milkAmount > 0 && (
+                    <div className="bg-blue-50 p-3 rounded-md">
+                        <p className="text-sm text-blue-800">
+                            Milk Amount: ₹{milkAmount.toFixed(2)} ({quantityInLiters.toFixed(2)}L)
+                        </p>
+                    </div>
+                )}
             </div>
 
             <div>
                 <Label>Grocery Items</Label>
-                <div className="mt-2 text-center border-dashed border-2 border-gray-300 p-4 rounded-md">
-                    <Button variant="outline" size="sm" disabled>
+                
+                {/* Add new grocery item */}
+                <div className="mt-2 border-dashed border-2 border-gray-300 p-4 rounded-md space-y-3">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+                        <Input
+                            placeholder="Item name"
+                            value={newGroceryItem.name}
+                            onChange={e => setNewGroceryItem({...newGroceryItem, name: e.target.value})}
+                        />
+                        <Input
+                            type="number"
+                            placeholder="Quantity"
+                            value={newGroceryItem.quantity || ''}
+                            onChange={e => setNewGroceryItem({...newGroceryItem, quantity: parseFloat(e.target.value) || 0})}
+                        />
+                        <Select value={newGroceryItem.unit} onValueChange={value => setNewGroceryItem({...newGroceryItem, unit: value})}>
+                            <SelectTrigger>
+                                <SelectValue placeholder="Unit" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="kg">kg</SelectItem>
+                                <SelectItem value="grams">grams</SelectItem>
+                                <SelectItem value="liters">liters</SelectItem>
+                                <SelectItem value="pieces">pieces</SelectItem>
+                                <SelectItem value="packets">packets</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <Input
+                            type="number"
+                            placeholder="Price per unit"
+                            value={newGroceryItem.price || ''}
+                            onChange={e => setNewGroceryItem({...newGroceryItem, price: parseFloat(e.target.value) || 0})}
+                        />
+                    </div>
+                    <Button variant="outline" size="sm" onClick={addGroceryItem} className="w-full">
                         <Plus className="mr-2 h-4 w-4"/>
-                        Add Item
+                        Add Grocery Item
                     </Button>
-                    <p className="text-xs text-gray-500 mt-2">Grocery tracking coming soon!</p>
                 </div>
+
+                {/* Display existing grocery items */}
+                {currentEntry?.groceryItems.length > 0 && (
+                    <div className="mt-4 space-y-2">
+                        <Label className="text-sm font-medium">Added Items:</Label>
+                        {currentEntry.groceryItems.map((item, index) => (
+                            <div key={index} className="flex items-center gap-2 p-2 bg-gray-50 rounded-md">
+                                <Input
+                                    value={item.name}
+                                    onChange={e => updateGroceryItem(index, 'name', e.target.value)}
+                                    className="flex-1"
+                                />
+                                <Input
+                                    type="number"
+                                    value={item.quantity}
+                                    onChange={e => updateGroceryItem(index, 'quantity', parseFloat(e.target.value) || 0)}
+                                    className="w-20"
+                                />
+                                <Select value={item.unit} onValueChange={value => updateGroceryItem(index, 'unit', value)}>
+                                    <SelectTrigger className="w-24">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="kg">kg</SelectItem>
+                                        <SelectItem value="grams">grams</SelectItem>
+                                        <SelectItem value="liters">liters</SelectItem>
+                                        <SelectItem value="pieces">pieces</SelectItem>
+                                        <SelectItem value="packets">packets</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                <Input
+                                    type="number"
+                                    value={item.price}
+                                    onChange={e => updateGroceryItem(index, 'price', parseFloat(e.target.value) || 0)}
+                                    className="w-20"
+                                />
+                                <span className="text-sm font-medium w-16">₹{(item.quantity * item.price).toFixed(2)}</span>
+                                <Button variant="ghost" size="sm" onClick={() => removeGroceryItem(index)}>
+                                    <Trash2 className="h-4 w-4 text-red-500" />
+                                </Button>
+                            </div>
+                        ))}
+                        {groceryAmount > 0 && (
+                            <div className="bg-green-50 p-3 rounded-md">
+                                <p className="text-sm text-green-800">
+                                    Grocery Amount: ₹{groceryAmount.toFixed(2)}
+                                </p>
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
 
             <div className="bg-blue-50 p-4 rounded-md text-center">
                 <p className="font-bold text-lg text-blue-800">
                     Total Amount: ₹{totalAmount.toFixed(2)}
                 </p>
-                <p className="text-sm text-gray-600">({currentEntry?.quantityInMl || 0}ml = {quantityInLiters.toFixed(2)}L)</p>
+                <p className="text-sm text-gray-600">
+                    {milkAmount > 0 && `Milk: ₹${milkAmount.toFixed(2)}`}
+                    {milkAmount > 0 && groceryAmount > 0 && " + "}
+                    {groceryAmount > 0 && `Grocery: ₹${groceryAmount.toFixed(2)}`}
+                </p>
             </div>
         </div>
         <div className="flex gap-4 mt-6">
