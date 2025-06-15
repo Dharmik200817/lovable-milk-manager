@@ -1,6 +1,43 @@
+
 import { supabase } from "@/integrations/supabase/client";
-import { format, getDaysInMonth, startOfMonth, addDays } from 'date-fns';
+import { format, getDaysInMonth } from 'date-fns';
 import jsPDF from "jspdf";
+
+// Define the strongly-typed interfaces used in the bill generation
+export interface BillCustomer {
+  id: string;
+  name: string;
+  address: string;
+  phone_number?: string;
+}
+
+export interface BillGroceryItem {
+  name: string;
+  price: number;
+  description?: string;
+}
+
+export interface BillDailyEntry {
+  id: string;
+  time: string; // "Morning", "Evening"
+  milkQuantity: number;
+  milkAmount: number;
+  milkType: string;
+  grocery: {
+    items: BillGroceryItem[];
+    total: number;
+  };
+}
+
+export interface BillMonthlyData {
+  [date: string]: {
+    entries: BillDailyEntry[];
+    totalMilkQuantity: number;
+    totalMilkAmount: number;
+    totalGroceryAmount: number;
+    hasDelivery: boolean;
+  };
+}
 
 // Utility to generate the bill PDF and return a blob
 export async function generatePDFBlob({
@@ -9,9 +46,9 @@ export async function generatePDFBlob({
   monthlyData,
   pendingBalance,
 }: {
-  customer: any;
+  customer: BillCustomer;
   selectedDate: Date;
-  monthlyData: any;
+  monthlyData: BillMonthlyData;
   pendingBalance: number;
 }) {
   try {
@@ -113,13 +150,12 @@ export async function generatePDFBlob({
   }
 }
     
-// Utility to upload to Supabase Storage and get public URL
 export async function uploadPdfAndGetUrl({
   customer,
   selectedDate,
   pdfBlob,
 }: {
-  customer: any;
+  customer: BillCustomer;
   selectedDate: Date;
   pdfBlob: Blob;
 }) {

@@ -1,7 +1,8 @@
 
 import { format } from "date-fns";
+import type { BillCustomer, BillMonthlyData } from "./pdfUtils";
 
-// Utility to generate WhatsApp message for customer bill with optional pdfUrl
+// Utility to generate WhatsApp message for customer bill with required pdfUrl
 export function buildWhatsAppBillMessage({
   customer,
   selectedDate,
@@ -9,14 +10,14 @@ export function buildWhatsAppBillMessage({
   pendingBalance,
   pdfUrl,
 }: {
-  customer: any;
+  customer: BillCustomer;
   selectedDate: Date;
-  monthlyData: any;
+  monthlyData: BillMonthlyData;
   pendingBalance: number;
   pdfUrl: string;
 }) {
   let totalMilk = 0, totalGroceryAmount = 0, totalMilkAmount = 0;
-  Object.values(monthlyData).forEach((day: any) => {
+  Object.values(monthlyData).forEach((day) => {
     totalMilk += day.totalMilkQuantity;
     totalGroceryAmount += day.totalGroceryAmount;
     totalMilkAmount += day.totalMilkAmount;
@@ -40,7 +41,7 @@ ${pendingBalance > 0 ? `• Previous Balance: ${pendingBalance.toFixed(2)}` : ""
 
 💰 *TOTAL AMOUNT: ${Math.round(grandTotal)}*
 
-📝 *Download PDF Bill*: ${pdfUrl}
+📄 Download your monthly bill PDF: ${pdfUrl}
 
 Thank you for your business! 🙏
 *NARMADA DAIRY*`;

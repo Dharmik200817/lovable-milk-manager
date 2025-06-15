@@ -12,9 +12,9 @@ import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import jsPDF from 'jspdf';
-import { saveAs } from 'file-saver';
-import { generatePDFBlob, uploadPdfAndGetUrl } from "@/utils/pdfUtils";
+import { generatePDFBlob, uploadPdfAndGetUrl, BillCustomer, BillMonthlyData } from "@/utils/pdfUtils";
 import { buildWhatsAppBillMessage } from "@/utils/whatsappMessage";
+import { saveAs } from "file-saver";
 
 interface Customer {
   id: string;
@@ -311,7 +311,7 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
     }
   };
 
-  const sendWhatsAppBill = async (customer: Customer) => {
+  const sendWhatsAppBill = async (customer: BillCustomer) => {
     if (!customer.phone_number) {
       toast({
         title: "Error",
@@ -339,7 +339,7 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
       });
       if (!pdfUrl) throw new Error("Could not upload PDF for WhatsApp message.");
 
-      // Build WhatsApp message body with PDF download link included (no payment instructions)
+      // Build WhatsApp message body with necessary summary and attached PDF link (NO payment instructions)
       const message = buildWhatsAppBillMessage({
         customer,
         selectedDate,
@@ -356,7 +356,7 @@ export const CustomerBills = ({ preSelectedCustomerId, onViewRecords }: Customer
 
       toast({
         title: "WhatsApp Ready",
-        description: "WhatsApp opened with bill and PDF link. Please attach the PDF if needed in WhatsApp.",
+        description: "WhatsApp opened with bill and PDF link.",
         duration: 3000,
       });
     } catch (error) {
