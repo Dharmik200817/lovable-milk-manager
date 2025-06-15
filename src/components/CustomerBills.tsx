@@ -414,7 +414,10 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
       const getDataForDay = (day: number | undefined) => {
         if (!day) return { morning: '', evening: '', grocery: '' };
         
-        const dateObj = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day);
+        // Fix: Use the selected date's year and month, then set the day
+        const year = selectedDate.getFullYear();
+        const month = selectedDate.getMonth();
+        const dateObj = new Date(year, month, day);
         const dateStr = format(dateObj, "yyyy-MM-dd");
         const dayData = monthlyData[dateStr];
         
