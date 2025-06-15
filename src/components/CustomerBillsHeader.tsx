@@ -109,7 +109,12 @@ export const CustomerBillsHeader: React.FC<Props> = ({
         <Button
           onClick={() => {
             const customer = customers.find(c => c.id === selectedCustomer);
-            if (customer) sendWhatsAppBill(customer);
+            console.log("📦 sendWhatsAppBill CUSTOMER DATA", customer);
+            if (!customer) {
+              console.error("No customer found for selectedCustomer:", selectedCustomer);
+            } else {
+              sendWhatsAppBill(customer);
+            }
           }}
           disabled={!selectedCustomer || isLoading || isUploadingPDF}
           className="w-full flex items-center bg-green-600 hover:bg-green-700"
