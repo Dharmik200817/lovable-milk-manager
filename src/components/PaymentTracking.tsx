@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -23,6 +22,7 @@ import { CalendarIcon, Plus, CheckCircle, AlertCircle, Users } from 'lucide-reac
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { BulkPaymentEntry } from './BulkPaymentEntry';
+import { PendingPayments } from './PendingPayments';
 
 interface Payment {
   id: string;
@@ -52,7 +52,6 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
   });
   const [date, setDate] = useState<Date | undefined>(new Date());
 
-  // Load payments from Supabase on component mount
   useEffect(() => {
     loadPayments();
   }, []);
@@ -108,23 +107,20 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
       return;
     }
 
-    // Ensure payment_date is only "YYYY-MM-DD"
     let payment_date_iso = formData.payment_date;
     if (payment_date_iso) {
-      // If full ISO, trim to just date
       payment_date_iso = payment_date_iso.split("T")[0];
     }
 
     try {
       setIsLoading(true);
 
-      // Create new payment
       const { error } = await supabase
         .from('payments')
         .insert({
           customer_name: formData.customer_name.trim(),
           amount: parseFloat(formData.amount),
-          payment_date: payment_date_iso, // Only the date
+          payment_date: payment_date_iso,
           payment_method: formData.payment_method,
           notes: formData.notes.trim() || null
         });
@@ -137,10 +133,8 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
         duration: 2000
       });
 
-      // Reload payments to get updated data
       await loadPayments();
       
-      // Reset form
       setFormData({ customer_name: '', amount: '', payment_date: '', payment_method: '', notes: '' });
       setDate(undefined);
       setIsAddDialogOpen(false);
@@ -291,8 +285,14 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
         </div>
       </div>
 
+      {/* Pending Payments Section */}
+      <PendingPayments onViewCustomer={onNavigateToDelivery} />
+
       {/* Payment List */}
       <Card className="overflow-hidden">
+        <div className="p-4 border-b">
+          <h3 className="text-lg font-semibold text-gray-800">Payment History</h3>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50">
@@ -340,7 +340,6 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
                       <div className="text-sm text-gray-900">₹{payment.amount.toFixed(2)}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      {/* Display date only */}
                       <div className="text-sm text-gray-900">
                         {payment.payment_date
                           ? new Date(payment.payment_date).toLocaleDateString()

@@ -18,13 +18,14 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { Plus, Search, Edit, Trash2, Download } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, Download, Users } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from "@/lib/utils"
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { DateRange } from 'react-day-picker';
 import { generateDeliveryReport } from '@/utils/generate-delivery-report';
+import { BulkDeliveryEntry } from './BulkDeliveryEntry';
 
 interface DeliveryRecord {
   id: string;
@@ -61,8 +62,8 @@ export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) =
     notes: ''
   });
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [isBulkMode, setIsBulkMode] = useState(true); // Start with bulk mode
 
-  // Load data from Supabase on component mount
   useEffect(() => {
     loadCustomers();
     loadMilkTypes();
@@ -216,7 +217,6 @@ export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) =
       const totalAmount = quantity * pricePerLiter;
 
       if (editingRecord) {
-        // Update existing record
         const { error } = await supabase
           .from('delivery_records')
           .update({
@@ -238,7 +238,6 @@ export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) =
           duration: 2000
         });
       } else {
-        // Create new record
         const { error } = await supabase
           .from('delivery_records')
           .insert({
@@ -248,7 +247,6 @@ export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) =
             quantity: quantity,
             price_per_liter: pricePerLiter,
             total_amount: totalAmount,
-            payment_status: false,
             notes: formData.notes || null
           });
 
@@ -261,10 +259,8 @@ export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) =
         });
       }
 
-      // Reload delivery records to get updated data
       await loadDeliveryRecords();
 
-      // Reset form
       setFormData({ customerId: '', deliveryDate: new Date(), milkType: '', quantity: '', notes: '' });
       setIsAddDialogOpen(false);
       setEditingRecord(null);
@@ -310,7 +306,6 @@ export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) =
         duration: 2000
       });
 
-      // Reload delivery records
       await loadDeliveryRecords();
     } catch (error) {
       console.error('Error deleting delivery record:', error);
@@ -329,12 +324,29 @@ export const DeliveryRecords = ({ highlightCustomerId }: DeliveryRecordsProps) =
     generateDeliveryReport(filteredRecords);
   };
 
+  if (isBulkMode) {
+    return (
+      <BulkDeliveryEntry 
+        onClose={() => setIsBulkMode(false)}
+      />
+    );
+  }
+
   return (
     <div className="space-y-6 pb-20 sm:pb-6">
       <div className="flex items-center justify-between">
         <h2 className="text-xl sm:text-3xl font-bold text-gray-900">Delivery Records</h2>
         
         <div className="space-x-2">
+          <Button 
+            variant="outline" 
+            onClick={() => setIsBulkMode(true)} 
+            disabled={isLoading}
+            className="bg-blue-600 hover:bg-blue-700 text-white"
+          >
+            <Users className="h-4 w-4 mr-2" />
+            Bulk Entry
+          </Button>
           <Button onClick={downloadDeliveryReport} disabled={isLoading}>
             <Download className="h-4 w-4 mr-2" />
             Download Report
