@@ -224,8 +224,16 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
         setSelectedDate(nextDate);
       }
     } else {
-      toast({ title: "All entries complete!" });
-      onClose();
+      // Instead of closing, show completion message and reset to first customer
+      toast({ 
+        title: "All entries complete!", 
+        description: "Starting over from first customer.",
+        duration: 3000
+      });
+      setCurrentEntryIndex(0);
+      setIsGroceryOnly(false);
+      // Reset date to today for new cycle
+      setSelectedDate(new Date());
     }
   }
 
