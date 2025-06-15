@@ -49,7 +49,7 @@ export async function generatePDFBlob({
   customer: BillCustomer;
   selectedDate: Date;
   monthlyData: BillMonthlyData;
-  pendingBalance: number;
+  pendingBalance: number; // This is the previous pending, passed in by CustomerBills
   monthlyPayments?: number; // <-- NEW
 }) {
   try {

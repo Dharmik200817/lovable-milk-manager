@@ -314,14 +314,10 @@ export const BulkDeliveryEntry = ({ onClose }: BulkDeliveryEntryProps) => {
             description: "Moving to next customer.",
             duration: 1500,
         });
-        
-        // Auto-advance date to next day only when saving
-        if (selectedDate && currentEntryIndex < entries.length - 1) {
-          const nextDate = new Date(selectedDate);
-          nextDate.setDate(nextDate.getDate() + 1);
-          setSelectedDate(nextDate);
-        }
-        
+
+        // --- Change: DO NOT ADVANCE THE DATE. ---
+        // Just go to next customer, but keep `selectedDate` the same.
+
         goToNextCustomer();
 
     } catch (error: any) {
