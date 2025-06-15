@@ -9,9 +9,12 @@ import { Input } from "@/components/ui/input";
 import { Calendar as CalendarIcon, Trash2, FileText, MessageCircle } from "lucide-react";
 import { format } from "date-fns";
 
+// Update Customer interface to match the source of truth (must include address and phone_number)
 interface Customer {
   id: string;
   name: string;
+  address: string;
+  phone_number?: string;
 }
 
 interface Props {
