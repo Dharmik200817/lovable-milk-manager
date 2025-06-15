@@ -146,11 +146,29 @@ export async function generatePDFBlob({
     pdf.setFillColor(255,248,220); pdf.rect(20,y-8,pageWidth-40,15,'F');
     pdf.setDrawColor(41,98,255); pdf.setLineWidth(1); pdf.rect(20,y-8,pageWidth-40,15);
     pdf.setFont("helvetica","bold"); pdf.setFontSize(14);
-    pdf.setTextColor(41,98,255); pdf.text("TOTAL AMOUNT:",25,y); pdf.text(`${Math.round(grandTotal)}`,120,y);
-    y+=20; pdf.setDrawColor(200,200,200); pdf.line(20,y,pageWidth-20,y); y+=10;
-    pdf.setTextColor(100,100,100); pdf.setFont("helvetica","normal"); pdf.setFontSize(10);
-    pdf.text("Thank you for your business!",pageWidth/2,y,{align:"center"}); y+=8;
-    pdf.setFont("helvetica","bold"); pdf.text("NARMADA DAIRY",pageWidth/2,y,{align:"center"});
+    pdf.setTextColor(41,98,255);
+
+    let totalDisplayValue = '';
+    if (monthlyPayments > 0) {
+      totalDisplayValue = `${Math.round(pendingAfterPayment)}`;
+    } else {
+      totalDisplayValue = `${Math.round(grandTotal)}`;
+    }
+
+    pdf.text("TOTAL AMOUNT:", 25, y);
+    pdf.text(totalDisplayValue, 120, y);
+
+    y += 20;
+    pdf.setDrawColor(200, 200, 200);
+    pdf.line(20, y, pageWidth-20, y);
+    y += 10;
+    pdf.setTextColor(100, 100, 100);
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(10);
+    pdf.text("Thank you for your business!", pageWidth/2, y, {align: "center"});
+    y += 8;
+    pdf.setFont("helvetica", "bold");
+    pdf.text("NARMADA DAIRY", pageWidth/2, y, {align: "center"});
     return pdf.output('blob');
   } catch (error) {
     return null;
