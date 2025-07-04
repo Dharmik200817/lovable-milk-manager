@@ -27,9 +27,10 @@ interface PendingPayment {
 
 interface PendingPaymentsProps {
   onViewCustomer?: (customerId: string) => void;
+  onPaymentsCleared?: () => void;
 }
 
-export const PendingPayments = ({ onViewCustomer }: PendingPaymentsProps) => {
+export const PendingPayments = ({ onViewCustomer, onPaymentsCleared }: PendingPaymentsProps) => {
   const [pendingPayments, setPendingPayments] = useState<PendingPayment[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [clearingCustomerId, setClearingCustomerId] = useState<string | null>(null);
@@ -43,7 +44,6 @@ export const PendingPayments = ({ onViewCustomer }: PendingPaymentsProps) => {
     try {
       setIsLoading(true);
       
-      // Query customer_balances table with customer names
       const { data, error } = await supabase
         .from('customer_balances')
         .select(`
@@ -59,7 +59,6 @@ export const PendingPayments = ({ onViewCustomer }: PendingPaymentsProps) => {
         throw error;
       }
 
-      // Transform the data to match our interface
       const transformedData = data?.map(item => ({
         customer_id: item.customer_id,
         customer_name: item.customers.name,
@@ -106,25 +105,41 @@ export const PendingPayments = ({ onViewCustomer }: PendingPaymentsProps) => {
     try {
       setIsLoading(true);
       
-      // Clear the pending amount for this customer
-      const { error } = await supabase
-        .from('customer_balances')
-        .update({ pending_amount: 0 })
-        .eq('customer_id', clearingCustomerId);
+      // Get customer details for payment record
+      const customer = pendingPayments.find(p => p.customer_id === clearingCustomerId);
+      if (!customer) return;
 
-      if (error) {
-        console.error('Error clearing payment:', error);
-        throw error;
+      // First, add a payment record for the cleared amount
+      const { error: paymentError } = await supabase
+        .from('payments')
+        .insert({
+          customer_name: customer.customer_name,
+          amount: customer.pending_amount,
+          payment_date: new Date().toISOString().split('T')[0],
+          payment_method: 'Balance Clear',
+          notes: 'Cleared through admin'
+        });
+
+      if (paymentError) {
+        console.error('Error adding payment record:', paymentError);
+        throw paymentError;
       }
+
+      // The payment will automatically update the customer balance via trigger
+      // Wait a moment for the trigger to process
+      await new Promise(resolve => setTimeout(resolve, 500));
 
       toast({
         title: "Success",
-        description: "Payment cleared successfully",
+        description: `Payment of ₹${customer.pending_amount.toFixed(2)} cleared for ${customer.customer_name}`,
         duration: 2000
       });
 
-      // Reload the pending payments
+      // Reload the pending payments and notify parent components
       await loadPendingPayments();
+      if (onPaymentsCleared) {
+        onPaymentsCleared();
+      }
       
       // Reset form
       setPassword('');
@@ -215,7 +230,7 @@ export const PendingPayments = ({ onViewCustomer }: PendingPaymentsProps) => {
                       <AlertDialogTitle>Clear Payment</AlertDialogTitle>
                       <AlertDialogDescription>
                         Are you sure you want to clear the pending payment for {currentPayment?.customer_name}? 
-                        This will set their pending balance to ₹0.
+                        This will add a payment record for ₹{currentPayment?.pending_amount.toFixed(2)} and clear their balance.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <div className="my-4">

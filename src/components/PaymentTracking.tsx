@@ -64,11 +64,12 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState(getInitialFormData());
   const [date, setDate] = useState<Date | undefined>(new Date());
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     loadPayments();
     loadCustomers();
-  }, []);
+  }, [refreshKey]);
 
   const loadCustomers = async () => {
     try {
@@ -192,7 +193,8 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
         duration: 2000
       });
 
-      await loadPayments();
+      // Refresh both payments and pending payments
+      setRefreshKey(prev => prev + 1);
       
       handleResetForm();
       setIsAddDialogOpen(false);
@@ -207,6 +209,16 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handlePaymentsCleared = () => {
+    // Refresh data when payments are cleared
+    setRefreshKey(prev => prev + 1);
+  };
+
+  const findCustomerIdByName = (customerName: string) => {
+    const customer = customers.find(c => c.name === customerName);
+    return customer?.id || customerName;
   };
 
   return (
@@ -328,7 +340,10 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
       </div>
 
       {/* Pending Payments Section */}
-      <PendingPayments onViewCustomer={onNavigateToDelivery} />
+      <PendingPayments 
+        onViewCustomer={onNavigateToDelivery} 
+        onPaymentsCleared={handlePaymentsCleared}
+      />
 
       <Card className="overflow-hidden">
         <div className="p-4 border-b">
@@ -397,7 +412,7 @@ export const PaymentTracking = ({ onNavigateToDelivery }: PaymentTrackingProps) 
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => onNavigateToDelivery ? onNavigateToDelivery(payment.customer_name) : null}
+                        onClick={() => onNavigateToDelivery ? onNavigateToDelivery(findCustomerIdByName(payment.customer_name)) : null}
                         className="text-blue-600 hover:text-blue-900"
                         disabled={isLoading}
                       >

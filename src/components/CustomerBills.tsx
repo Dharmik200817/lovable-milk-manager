@@ -49,10 +49,9 @@ interface CustomerBillsProps {
 const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) => {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<string>(preSelectedCustomerId || '');
-  // Initialize selectedDate with a stable date to prevent it from changing
   const [selectedDate, setSelectedDate] = useState<Date>(() => {
     const now = new Date();
-    return new Date(now.getFullYear(), now.getMonth(), 1); // First day of current month
+    return new Date(now.getFullYear(), now.getMonth(), 1);
   });
   const [monthlyData, setMonthlyData] = useState<MonthlyData>({});
   const [isLoading, setIsLoading] = useState(false);
@@ -60,6 +59,7 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
   const [password, setPassword] = useState('');
   const [pendingBalance, setPendingBalance] = useState(0);
   const [isUploadingPDF, setIsUploadingPDF] = useState(false);
+  const [monthlyPayments, setMonthlyPayments] = useState(0);
 
   const loadCustomers = async () => {
     try {
@@ -80,9 +80,6 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
     }
   };
 
-  const [monthlyPayments, setMonthlyPayments] = useState(0);
-
-  // Fetch payments made in the selected month
   const loadMonthlyPayments = async () => {
     if (!selectedCustomer) {
       setMonthlyPayments(0);
@@ -115,23 +112,20 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
     }
   };
 
-  // Effect: reload monthly payments whenever customer or selectedDate changes
-  useEffect(() => {
-    if (selectedCustomer) {
-      loadMonthlyPayments();
-    }
-    // eslint-disable-next-line
-  }, [selectedCustomer, selectedDate, customers]);
-
   const loadPendingBalance = async () => {
-    if (!selectedCustomer) return;
+    if (!selectedCustomer) {
+      setPendingBalance(0);
+      return;
+    }
     
     try {
       const customer = customers.find(c => c.id === selectedCustomer);
-      if (!customer) return;
+      if (!customer) {
+        setPendingBalance(0);
+        return;
+      }
 
-      // Instead of calculating from scratch, get the current balance from customer_balances table
-      // This table is automatically updated by triggers when payments are made
+      // Get the current balance from customer_balances table
       const { data: balanceData, error: balanceError } = await supabase
         .from('customer_balances')
         .select('pending_amount')
@@ -139,37 +133,47 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
         .single();
       
       if (balanceError && balanceError.code !== 'PGRST116') {
-        throw balanceError;
+        console.error('Error loading balance:', balanceError);
+        setPendingBalance(0);
+        return;
       }
       
-      // Get the current month's start date
+      const currentBalance = balanceData?.pending_amount || 0;
+      
+      // Get current month's deliveries and payments to calculate previous balance
       const currentMonthStart = format(startOfMonth(selectedDate), 'yyyy-MM-dd');
       
-      // Get current month's deliveries to subtract from the balance
       const { data: currentMonthDeliveries, error: deliveryError } = await supabase
         .from('delivery_records')
         .select('total_amount')
         .eq('customer_id', selectedCustomer)
         .gte('delivery_date', currentMonthStart);
       
-      if (deliveryError) throw deliveryError;
+      if (deliveryError) {
+        console.error('Error loading deliveries:', deliveryError);
+        setPendingBalance(Math.max(0, currentBalance));
+        return;
+      }
       
-      // Get current month's payments to subtract from the balance
       const { data: currentMonthPayments, error: paymentsError } = await supabase
         .from('payments')
         .select('amount')
         .eq('customer_name', customer.name)
         .gte('payment_date', currentMonthStart);
       
-      if (paymentsError) throw paymentsError;
+      if (paymentsError) {
+        console.error('Error loading payments:', paymentsError);
+        setPendingBalance(Math.max(0, currentBalance));
+        return;
+      }
       
       const currentMonthDeliveryTotal = currentMonthDeliveries?.reduce((sum, record) => sum + Number(record.total_amount), 0) || 0;
       const currentMonthPaymentTotal = currentMonthPayments?.reduce((sum, payment) => sum + Number(payment.amount), 0) || 0;
       
-      // Previous balance = Current balance from DB - current month deliveries + current month payments
-      const actualPreviousBalance = Math.max(0, (balanceData?.pending_amount || 0) - currentMonthDeliveryTotal + currentMonthPaymentTotal);
+      // Previous balance = Current balance - current month deliveries + current month payments
+      const previousBalance = Math.max(0, currentBalance - currentMonthDeliveryTotal + currentMonthPaymentTotal);
       
-      setPendingBalance(actualPreviousBalance);
+      setPendingBalance(previousBalance);
     } catch (error) {
       console.error('Error loading pending balance:', error);
       setPendingBalance(0);
@@ -186,11 +190,10 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
     try {
       setIsLoading(true);
       
-      // Use the selectedDate to get the correct month range
       const year = selectedDate.getFullYear();
       const month = selectedDate.getMonth();
       const startDate = format(new Date(year, month, 1), 'yyyy-MM-dd');
-      const endDate = format(new Date(year, month + 1, 0), 'yyyy-MM-dd'); // Last day of the month
+      const endDate = format(new Date(year, month + 1, 0), 'yyyy-MM-dd');
 
       console.log('Loading data for:', { 
         selectedCustomer, 
@@ -315,21 +318,14 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
     }
   }, [preSelectedCustomerId, customers]);
 
-  // Separate useEffect for when customer changes (don't reload pending balance and monthly data on date changes)
   useEffect(() => {
     if (selectedCustomer) {
-      console.log('Customer changed, reloading data for:', selectedCustomer);
+      console.log('Customer or date changed, reloading data for:', selectedCustomer);
       loadPendingBalance();
-    }
-  }, [selectedCustomer, customers]);
-
-  // Separate useEffect for when date changes or customer changes
-  useEffect(() => {
-    if (selectedCustomer) {
-      console.log('Date or customer changed, reloading monthly data');
+      loadMonthlyPayments();
       loadMonthlyData();
     }
-  }, [selectedCustomer, selectedDate]);
+  }, [selectedCustomer, selectedDate, customers]);
 
   const handleClearPayment = async () => {
     if (password !== '123') {
@@ -353,14 +349,15 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
             customer_name: customer.name,
             amount: pendingBalance,
             payment_method: 'Balance Clear',
-            payment_date: format(new Date(), 'yyyy-MM-dd')
+            payment_date: format(new Date(), 'yyyy-MM-dd'),
+            notes: 'Cleared through admin'
           });
 
         if (paymentError) throw paymentError;
 
         toast({
           title: "Success",
-          description: `Outstanding balance of ${pendingBalance.toFixed(2)} cleared for ${customer.name}`,
+          description: `Outstanding balance of ₹${pendingBalance.toFixed(2)} cleared for ${customer.name}`,
           duration: 2000
         });
       } else {
@@ -373,7 +370,10 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
 
       setClearPasswordDialog(false);
       setPassword('');
+      
+      // Reload data after clearing
       loadPendingBalance();
+      loadMonthlyPayments();
     } catch (error) {
       console.error('Error clearing balance:', error);
       toast({
@@ -456,7 +456,6 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
     });
     const totalMonthlyAmount = totalMilkAmount + totalGroceryAmount;
     const grandTotal = totalMonthlyAmount + pendingBalance;
-    // Calculate balance after payment
     const pendingAfterPayment = Math.max(0, grandTotal - monthlyPayments);
     return { totalMilk, totalMilkAmount, totalGroceryAmount, totalMonthlyAmount, grandTotal, pendingAfterPayment };
   };
@@ -479,7 +478,6 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
     console.log('Days in month:', daysInMonth);
     console.log('Monthly data keys:', Object.keys(monthlyData));
     
-    // Create rows for left and right columns (traditional milk card format)
     const leftColumnDays = [];
     const rightColumnDays = [];
     
@@ -500,7 +498,6 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
       const getDataForDay = (day: number | undefined) => {
         if (!day) return { morning: '', evening: '', grocery: '' };
         
-        // Use the selected date's year and month, then set the day
         const year = selectedDate.getFullYear();
         const month = selectedDate.getMonth();
         const dateObj = new Date(year, month, day);
@@ -523,7 +520,6 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
           } else if (entry.time.toLowerCase().includes('evening')) {
             eveningQty += entry.milkQuantity;
           } else {
-            // If time is not specified as morning/evening, assume morning
             morningQty += entry.milkQuantity;
           }
           groceryTotal += entry.grocery.total;
