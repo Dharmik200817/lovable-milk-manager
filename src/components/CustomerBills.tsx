@@ -59,7 +59,7 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
   const [clearPasswordDialog, setClearPasswordDialog] = useState(false);
   const [password, setPassword] = useState('');
   const [pendingBalance, setPendingBalance] = useState(0);
-  const [isUploadingPDF, setIsUploadingPDF] = useState(isUploadingPDF);
+  const [isUploadingPDF, setIsUploadingPDF] = useState(false);
 
   const loadCustomers = async () => {
     try {
