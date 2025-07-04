@@ -59,7 +59,7 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
   const [clearPasswordDialog, setClearPasswordDialog] = useState(false);
   const [password, setPassword] = useState('');
   const [pendingBalance, setPendingBalance] = useState(0);
-  const [isUploadingPDF, setIsUploadingPDF] = useState(false);
+  const [isUploadingPDF, setIsUploadingPDF] = useState(isUploadingPDF);
 
   const loadCustomers = async () => {
     try {
@@ -130,31 +130,49 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
       const customer = customers.find(c => c.id === selectedCustomer);
       if (!customer) return;
 
+      // Instead of calculating from scratch, get the current balance from customer_balances table
+      // This table is automatically updated by triggers when payments are made
+      const { data: balanceData, error: balanceError } = await supabase
+        .from('customer_balances')
+        .select('pending_amount')
+        .eq('customer_id', selectedCustomer)
+        .single();
+      
+      if (balanceError && balanceError.code !== 'PGRST116') {
+        throw balanceError;
+      }
+      
+      // Get the current month's start date
       const currentMonthStart = format(startOfMonth(selectedDate), 'yyyy-MM-dd');
       
-      const { data: previousDeliveryData, error: deliveryError } = await supabase
+      // Get current month's deliveries to subtract from the balance
+      const { data: currentMonthDeliveries, error: deliveryError } = await supabase
         .from('delivery_records')
         .select('total_amount')
         .eq('customer_id', selectedCustomer)
-        .lt('delivery_date', currentMonthStart);
+        .gte('delivery_date', currentMonthStart);
       
       if (deliveryError) throw deliveryError;
       
-      const { data: previousPaymentData, error: paymentError } = await supabase
+      // Get current month's payments to subtract from the balance
+      const { data: currentMonthPayments, error: paymentsError } = await supabase
         .from('payments')
         .select('amount')
         .eq('customer_name', customer.name)
-        .lt('payment_date', currentMonthStart);
+        .gte('payment_date', currentMonthStart);
       
-      if (paymentError) throw paymentError;
+      if (paymentsError) throw paymentsError;
       
-      const totalPreviousDelivery = previousDeliveryData?.reduce((sum, record) => sum + Number(record.total_amount), 0) || 0;
-      const totalPreviousPayments = previousPaymentData?.reduce((sum, payment) => sum + Number(payment.amount), 0) || 0;
+      const currentMonthDeliveryTotal = currentMonthDeliveries?.reduce((sum, record) => sum + Number(record.total_amount), 0) || 0;
+      const currentMonthPaymentTotal = currentMonthPayments?.reduce((sum, payment) => sum + Number(payment.amount), 0) || 0;
       
-      const actualPreviousBalance = Math.max(0, totalPreviousDelivery - totalPreviousPayments);
+      // Previous balance = Current balance from DB - current month deliveries + current month payments
+      const actualPreviousBalance = Math.max(0, (balanceData?.pending_amount || 0) - currentMonthDeliveryTotal + currentMonthPaymentTotal);
+      
       setPendingBalance(actualPreviousBalance);
     } catch (error) {
       console.error('Error loading pending balance:', error);
+      setPendingBalance(0);
     }
   };
 
