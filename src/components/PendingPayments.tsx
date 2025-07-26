@@ -44,28 +44,22 @@ export const PendingPayments = ({ onViewCustomer, onPaymentsCleared }: PendingPa
     try {
       setIsLoading(true);
       
+      // Calculate pending amounts by getting total deliveries minus total payments for each customer
       const { data, error } = await supabase
-        .from('customer_balances')
-        .select(`
-          customer_id,
-          pending_amount,
-          customers!inner(name)
-        `)
-        .gt('pending_amount', 0)
-        .order('pending_amount', { ascending: false });
+        .rpc('get_customer_pending_balances');
 
       if (error) {
         console.error('Error loading pending payments:', error);
         throw error;
       }
 
-      const transformedData = data?.map(item => ({
-        customer_id: item.customer_id,
-        customer_name: item.customers.name,
-        pending_amount: item.pending_amount
-      })) || [];
-
-      setPendingPayments(transformedData);
+      const pendingCustomers = data?.filter(customer => customer.pending_amount > 0) || [];
+      
+      setPendingPayments(pendingCustomers.map(customer => ({
+        customer_id: customer.customer_id,
+        customer_name: customer.customer_name,
+        pending_amount: customer.pending_amount
+      })));
     } catch (error) {
       console.error('Error loading pending payments:', error);
       toast({
