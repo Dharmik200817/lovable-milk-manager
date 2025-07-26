@@ -47,7 +47,7 @@ interface CustomerBillsProps {
 }
 
 const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) => {
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customers, setCustomers] = useState<(Customer & { pendingAmount: number })[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<string>(preSelectedCustomerId || '');
   const [selectedDate, setSelectedDate] = useState<Date>(() => {
     const now = new Date();
@@ -61,22 +61,36 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
   const [isUploadingPDF, setIsUploadingPDF] = useState(false);
   const [monthlyPayments, setMonthlyPayments] = useState(0);
 
-  const loadCustomers = async () => {
+  const loadCustomerData = async () => {
     try {
-      const { data, error } = await supabase
-        .from('customers')
-        .select('*')
-        .order('name');
+      setIsLoading(true);
       
-      if (error) throw error;
-      setCustomers(data || []);
+      // Get customers with calculated pending balances
+      const { data: customersData, error: customersError } = await supabase
+        .rpc('get_customer_pending_balances');
+
+      if (customersError) throw customersError;
+
+      // Transform data to match expected format
+      const customersWithBalances = (customersData || []).map(customer => ({
+        id: customer.customer_id,
+        name: customer.customer_name,
+        address: customer.address,
+        phone_number: customer.phone_number,
+        pendingAmount: customer.pending_amount
+      }));
+
+      setCustomers(customersWithBalances);
     } catch (error) {
       console.error('Error loading customers:', error);
       toast({
         title: "Error",
-        description: "Failed to load customers",
-        variant: "destructive"
+        description: "Failed to load customer data",
+        variant: "destructive",
+        duration: 2000
       });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -309,7 +323,7 @@ const CustomerBills: React.FC<CustomerBillsProps> = ({ preSelectedCustomerId }) 
   };
 
   useEffect(() => {
-    loadCustomers();
+    loadCustomerData();
   }, []);
 
   useEffect(() => {

@@ -278,7 +278,19 @@ export type Database = {
       }
     }
     Functions: {
-      [_ in never]: never
+      get_customer_pending_balances: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          customer_id: string
+          customer_name: string
+          address: string
+          phone_number: string
+          created_at: string
+          total_deliveries: number
+          total_payments: number
+          pending_amount: number
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never

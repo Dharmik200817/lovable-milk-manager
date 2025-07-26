@@ -53,7 +53,7 @@ export const PendingPayments = ({ onViewCustomer, onPaymentsCleared }: PendingPa
         throw error;
       }
 
-      const pendingCustomers = data?.filter(customer => customer.pending_amount > 0) || [];
+      const pendingCustomers = (data || []).filter(customer => customer.pending_amount > 0);
       
       setPendingPayments(pendingCustomers.map(customer => ({
         customer_id: customer.customer_id,
