@@ -1,45 +1,17 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { CustomerManagement } from '../components/CustomerManagement';
 import { MilkTypesManagement } from '../components/MilkTypesManagement';
 import { DeliveryRecords } from '../components/DeliveryRecords';
 import { PaymentTracking } from '../components/PaymentTracking';
 import { Dashboard } from '../components/Dashboard';
 import { CustomerBills } from '../components/CustomerBills';
-import { Users, Milk, Calendar, CreditCard, Home, Receipt, LogOut } from 'lucide-react';
-import { useAuth } from '@/contexts/AuthContext';
-import { Button } from '@/components/ui/button';
-import { useNavigate } from 'react-router-dom';
+import { Users, Milk, Calendar, CreditCard, Home, Receipt } from 'lucide-react';
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [highlightCustomerId, setHighlightCustomerId] = useState<string | undefined>();
   const [selectedCustomerForBill, setSelectedCustomerForBill] = useState<string | undefined>();
-  const { user, signOut, loading } = useAuth();
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    if (!loading && !user) {
-      navigate('/auth');
-    }
-  }, [user, loading, navigate]);
-
-  // Show loading while checking authentication
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <Milk className="h-12 w-12 text-blue-600 mx-auto mb-4 animate-spin" />
-          <p className="text-gray-600">Loading...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Redirect to auth if not authenticated
-  if (!user) {
-    return null;
-  }
 
   const tabs = [
     {
@@ -128,20 +100,9 @@ const Index = () => {
               </h1>
             </div>
             
-            {/* User Info and Sign Out */}
-            <div className="flex items-center justify-between w-full sm:w-auto gap-2 sm:gap-4">
-              <span className="text-xs sm:text-sm text-gray-600 truncate max-w-[150px] sm:max-w-none">
-                {user.email}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={signOut}
-                className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm px-2 sm:px-3 py-1 sm:py-2 h-8 sm:h-9"
-              >
-                <LogOut className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="hidden sm:inline">Sign Out</span>
-              </Button>
+            {/* Empty space for future actions */}
+            <div className="flex items-center justify-end w-full sm:w-auto">
+              {/* Future: Add user menu or other actions here */}
             </div>
           </div>
         </div>
